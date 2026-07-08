@@ -1,0 +1,11 @@
+{
+  "lastfm": {
+    "api_key": "your_lastfm_api_key_here",
+    "api_secret": "your_lastfm_api_secret_here",
+    "accounts": []
+  },
+  "network": {
+    "interface": null
+  },
+  "players": []
+}

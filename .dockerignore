@@ -1,0 +1,37 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Runtime config (will be mounted as volume)
+config/config.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+CLAUDE.md
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation (included in image via COPY if needed)
+README.md
+
+# Other
+*.md
+.DS_Store

@@ -1,0 +1,11 @@
+# SkrobbleDS Requirements
+# Python 3.8+ required
+
+# Web framework for configuration UI
+Flask>=3.0.0,<4.0.0
+waitress>=3.0.0,<4.0.0
+
+# No additional dependencies required - uses standard library for:
+# - urllib (HTTP requests to Last.fm API)
+# - xml.etree.ElementTree (XML parsing)
+# - socket, threading (UPnP and networking)

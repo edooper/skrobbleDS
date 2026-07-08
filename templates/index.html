@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkrobbleDS Settings</title>
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif; background-color: #0d1117; color: #e6edf3; line-height: 1.5; padding: 24px; }
+        .container { max-width: 1280px; margin: 0 auto; }
+        header { margin-bottom: 32px; padding-bottom: 16px; border-bottom: 1px solid #30363d; }
+        h1 { font-size: 32px; font-weight: 600; color: #f0f6fc; margin-bottom: 8px; }
+        .subtitle { color: #8d96a0; font-size: 14px; }
+        .section { background-color: #161b22; border: 1px solid #30363d; border-radius: 6px; margin-bottom: 16px; overflow: hidden; }
+        .section-header { padding: 16px; background-color: #0d1117; border-bottom: 1px solid #30363d; }
+        .section-header h2 { font-size: 20px; font-weight: 600; color: #f0f6fc; }
+        .section-header p { color: #8d96a0; font-size: 14px; margin-top: 4px; }
+        .section-content { padding: 16px; }
+        .list-group { border: 1px solid #30363d; border-radius: 6px; overflow: hidden; }
+        .list-item { padding: 16px; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; background-color: #0d1117; }
+        .list-item:last-child { border-bottom: none; }
+        .list-item:hover { background-color: #161b22; }
+        .item-content { display: flex; align-items: center; gap: 12px; flex: 1; }
+        .item-label { font-weight: 500; color: #f0f6fc; }
+        .item-arrow { color: #8d96a0; padding: 0 8px; }
+        .empty-state { padding: 48px 16px; text-align: center; color: #8d96a0; font-size: 14px; }
+        .form-group { margin-top: 16px; }
+        .form-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        input[type="text"], select { background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; padding: 5px 12px; font-size: 14px; line-height: 20px; min-height: 32px; }
+        input[type="text"]:focus, select:focus { outline: none; border-color: #1f6feb; box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.3); }
+        select { cursor: pointer; min-width: 200px; }
+        input[type="text"] { min-width: 200px; }
+        .btn { background-color: #238636; border: 1px solid rgba(240, 246, 252, 0.1); border-radius: 6px; color: #ffffff; cursor: pointer; font-size: 14px; font-weight: 500; padding: 5px 16px; min-height: 32px; transition: background-color 0.2s; white-space: nowrap; }
+        .btn:hover { background-color: #2ea043; }
+        .btn-sm { padding: 3px 12px; font-size: 12px; min-height: 28px; }
+        .btn-danger { background-color: #da3633; border-color: rgba(240, 246, 252, 0.1); }
+        .btn-danger:hover { background-color: #f85149; }
+        .btn-secondary { background-color: #21262d; border-color: rgba(240, 246, 252, 0.1); }
+        .btn-secondary:hover { background-color: #30363d; }
+        .info-box { background-color: rgba(56, 139, 253, 0.15); border: 1px solid rgba(56, 139, 253, 0.4); border-radius: 6px; padding: 16px; margin-bottom: 16px; }
+        .info-box-title { font-weight: 600; color: #58a6ff; margin-bottom: 8px; font-size: 14px; }
+        .info-box ul { list-style: none; padding-left: 0; font-size: 14px; color: #e6edf3; }
+        .info-box li { padding: 4px 0 4px 20px; position: relative; }
+        .info-box li:before { content: "•"; position: absolute; left: 8px; color: #58a6ff; }
+        footer { margin-top: 40px; padding-top: 24px; border-top: 1px solid #30363d; text-align: center; color: #8d96a0; font-size: 12px; }
+        .danger-zone { border-color: rgba(248, 81, 73, 0.4); }
+        .danger-zone .section-header { background-color: rgba(248, 81, 73, 0.1); border-bottom-color: rgba(248, 81, 73, 0.4); }
+        .danger-zone .section-header h2 { color: #f85149; }
+        .scrobble-item { padding: 12px 16px; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; background-color: #0d1117; }
+        .scrobble-item:last-child { border-bottom: none; }
+        .scrobble-item:hover { background-color: #161b22; }
+        .scrobble-content { flex: 1; min-width: 0; }
+        .scrobble-track { font-weight: 500; color: #f0f6fc; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .scrobble-meta { font-size: 13px; color: #8d96a0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .scrobble-info { text-align: right; margin-left: 16px; flex-shrink: 0; }
+        .scrobble-time { font-size: 12px; color: #8d96a0; margin-bottom: 2px; }
+        .scrobble-player { font-size: 12px; color: #58a6ff; }
+        @media (max-width: 768px) {
+            .form-row { flex-direction: column; align-items: stretch; }
+            input[type="text"], select { width: 100%; min-width: 0; }
+            .list-item { flex-direction: column; align-items: flex-start; gap: 12px; }
+            .scrobble-item { flex-direction: column; align-items: flex-start; gap: 8px; }
+            .scrobble-info { margin-left: 0; text-align: left; width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SkrobbleDS</h1>
+            <p class="subtitle">Last.fm scrobbler for UPnP media players</p>
+        </header>
+
+        <div class="section">
+            <div class="section-header">
+                <h2>Last.fm Accounts</h2>
+                <p>Connect your Last.fm accounts to enable scrobbling</p>
+            </div>
+            <div class="section-content">
+                <div class="list-group">
+                    {% for account in accounts %}
+                    <div class="list-item">
+                        <div class="item-content"><span class="item-label">{{ account }}</span></div>
+                        <form action="{{ url_for('remove_account') }}" method="post" style="margin: 0;">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"/>
+                            <input type="hidden" name="account" value="{{ account }}"/>
+                            <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+                        </form>
+                    </div>
+                    {% else %}
+                    <div class="empty-state">No Last.fm accounts connected</div>
+                    {% endfor %}
+                </div>
+                <div class="form-group">
+                    <form action="{{ url_for('add_account') }}" method="get">
+                        <button type="submit" class="btn">Add Last.fm Account</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h2>UPnP Players</h2>
+                <p>Link discovered players to Last.fm accounts for scrobbling</p>
+            </div>
+            <div class="section-content">
+                <div class="list-group">
+                    {% for p in configured_players %}
+                    <div class="list-item">
+                        <div class="item-content">
+                            <span class="item-label">{{ p.name }}</span>
+                            <span class="item-arrow">→</span>
+                            <span class="item-label">{{ p.user }}</span>
+                        </div>
+                        <form action="{{ url_for('remove_player') }}" method="post" style="margin: 0;">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"/>
+                            <input type="hidden" name="player" value="{{ p.name }}"/>
+                            <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+                        </form>
+                    </div>
+                    {% else %}
+                    <div class="empty-state">No players configured for scrobbling</div>
+                    {% endfor %}
+                </div>
+                <div class="form-group">
+                    <form action="{{ url_for('add_player') }}" method="post" class="form-row">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"/>
+                        <select name="player">
+                            {% for p in available_players %}
+                            <option value="{{ p }}">{{ p }}</option>
+                            {% else %}
+                            <option value="">No players available</option>
+                            {% endfor %}
+                        </select>
+                        <span class="item-arrow">→</span>
+                        <select name="account">
+                            {% for account in accounts %}
+                            <option value="{{ account }}">{{ account }}</option>
+                            {% else %}
+                            <option value="">No accounts available</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn">Link Player</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h2>Network Configuration</h2>
+                <p>Configure network interface for UPnP discovery</p>
+            </div>
+            <div class="section-content">
+                <div class="info-box">
+                    <div class="info-box-title">Configuration Options</div>
+                    <ul>
+                        <li>Leave blank for <strong>default</strong> interface</li>
+                        <li>Set to <strong>0.0.0.0</strong> to monitor all interfaces</li>
+                        <li>Enter specific IP address to use that interface</li>
+                    </ul>
+                </div>
+                <form action="{{ url_for('update_host') }}" method="post" class="form-row">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"/>
+                    <label style="color: #8d96a0;">Interface:</label>
+                    <input type="text" name="host" value="{{ host or '' }}" placeholder="0.0.0.0 or IP address" maxlength="15"/>
+                    <button type="submit" class="btn btn-secondary">Update</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h2>Recent Scrobbles</h2>
+                <p>Last 10 successful submissions to Last.fm</p>
+            </div>
+            <div class="section-content">
+                <div class="list-group">
+                    {% for scrobble in recent_scrobbles %}
+                    <div class="scrobble-item">
+                        <div class="scrobble-content">
+                            <div class="scrobble-track">{{ scrobble.track }}</div>
+                            <div class="scrobble-meta">{{ scrobble.artist }} • {{ scrobble.album }}</div>
+                        </div>
+                        <div class="scrobble-info">
+                            <div class="scrobble-time">{{ scrobble.timestamp|datetimeformat }}</div>
+                            <div class="scrobble-player">{{ scrobble.player }}</div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="empty-state">No scrobbles found in database</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="section danger-zone">
+            <div class="section-header">
+                <h2>Shutdown</h2>
+                <p>Gracefully stop the SkrobbleDS application</p>
+            </div>
+            <div class="section-content">
+                <form action="{{ url_for('exit_app') }}" method="post">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"/>
+                    <button type="submit" class="btn btn-danger">Exit SkrobbleDS</button>
+                </form>
+            </div>
+        </div>
+
+        <footer>
+            <div>SkrobbleDS v{{ version }}</div>
+            <div>Copyright © Rockfather 2016, edooper 2026 • Modernized for Python 3</div>
+        </footer>
+    </div>
+</body>
+</html>

@@ -1,0 +1,28 @@
+services:
+  skrobbleds:
+    build: .
+    container_name: skrobbleds
+    network_mode: host
+    restart: unless-stopped
+
+    volumes:
+      - ./config:/app/config
+
+    env_file:
+      - path: .env
+        required: false
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:9099/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    stop_grace_period: 15s

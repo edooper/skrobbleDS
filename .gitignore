@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# Settings and sensitive data
+config/config.json
+config/skrobbleds.log
+config/upnp.log
+skrobbleds.log
+
+# Environment
+.env
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Database
+*.db
+config/*.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local-only files (not for distribution)
+prompt.txt
+CLAUDE.md
+GEMINI.md
+# SQLite WAL sidecar files
+config/*.db-wal
+config/*.db-shm
