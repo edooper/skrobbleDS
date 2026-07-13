@@ -5,6 +5,13 @@ services:
     network_mode: host
     restart: unless-stopped
 
+    # Run as the host user that owns ./config so the bind-mounted config
+    # directory (config.json, skrobbleds.db, skrobbleds.log) is writable.
+    # Required on NAS/Synology setups where the container's built-in
+    # 'skrobble' user has no write access to the mounted volume.
+    # Set PUID/PGID in .env to your host user (run `id` to find them).
+    user: "${PUID:-1000}:${PGID:-100}"
+
     volumes:
       - ./config:/app/config
 
