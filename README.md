@@ -2,7 +2,7 @@
 
 Last.fm scrobbler for Linn DS and OpenHome-compliant UPnP media players.
 
-📖 **[Technical Overview →](https://edooper.github.io/skrobbleDS/)** — architecture, module map, scrobble rules, and configuration at a glance.
+📖 **Technical Overview** — a styled architecture, module-map, scrobble-rules and configuration reference lives in [`docs/index.html`](docs/index.html). Publish it via **Settings → Pages → deploy from `main` / `docs`** (requires a public repo or a plan with Pages) to serve it at `https://edooper.github.io/skrobbleDS/`.
 
 ## Overview
 
