@@ -5,10 +5,13 @@ All Rights Reserved
 See the licence.txt file provided with this software
 for full terms and conditions of use
 """
+import collections
 import threading
 import time
 import queue
 import os
+
+import Constants
 
 class Logger:
     """Thread-safe logging system for SkrobbleDs"""
@@ -17,6 +20,11 @@ class Logger:
         self.shutdown_flag = False
         self.msg_queue = queue.Queue()
         self.log_file = None
+
+        # In-memory ring buffer of recent formatted log lines, surfaced by the
+        # web UI. Always available regardless of the optional LOG_FILE setting.
+        self.recent = collections.deque(maxlen=Constants.LOG_RING_SIZE)
+        self._recent_lock = threading.Lock()
 
         # Check debug logging level via environment variable
         # DEBUG=true enables debug messages, DEBUG=false (default) hides them
@@ -59,6 +67,26 @@ class Logger:
             return
         self.msg_queue.put(msg)
 
+    def get_recent_lines(self, count=Constants.LOG_DISPLAY_LINES):
+        """Return a snapshot of the last `count` formatted log lines"""
+        with self._recent_lock:
+            lines = list(self.recent)
+        return lines[-count:]
+
+    def get_recent_errors(self, count=Constants.LOG_ERROR_DISPLAY):
+        """Return recent buffered lines that mark a submission failure.
+
+        Scans the whole buffer for Last.fm error markers and returns the most
+        recent matches (oldest first), capped to `count`.
+        """
+        with self._recent_lock:
+            lines = list(self.recent)
+        errors = [
+            line for line in lines
+            if any(marker in line for marker in Constants.LOG_ERROR_MARKERS)
+        ]
+        return errors[-count:]
+
     def output_loop(self):
         """Background thread for processing the log message queue"""
         while not self.shutdown_flag:
@@ -71,6 +99,8 @@ class Logger:
             ts = time.strftime('%d/%m/%y %H:%M:%S')
             formatted_msg = f'[{ts}] {msg}'
             print(formatted_msg)
+            with self._recent_lock:
+                self.recent.append(formatted_msg)
             if self.log_file:
                 try:
                     self.log_file.write(formatted_msg + '\n')

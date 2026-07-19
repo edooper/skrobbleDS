@@ -45,7 +45,7 @@ class SkrobbleDs(Discovery.DiscoveryObserver):
         self.discovery.Start(Constants.DEV_TYPE_SOURCE)  # Start() also runs the first M-SEARCH
         
         self.log(f'SkrobbleDs v{VERSION} started')
-        self.webui = WebUi.WebUi(self.settings, self.player_list, self.shutdown, VERSION, self.db)
+        self.webui = WebUi.WebUi(self.settings, self.player_list, self.shutdown, VERSION, self.db, self.logger)
 
     def run(self):
         """Serve the web UI - blocks until the process exits"""

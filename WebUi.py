@@ -38,7 +38,7 @@ def auth_required(f):
         return f(*args, **kwargs)
     return decorated
 
-def create_app(settings, players, shutdown_callback, version, db):
+def create_app(settings, players, shutdown_callback, version, db, logger=None):
     """Flask application factory"""
     app = Flask(__name__)
     app.secret_key = secrets.token_hex(32)
@@ -49,6 +49,7 @@ def create_app(settings, players, shutdown_callback, version, db):
     app.config['SK_SHUTDOWN'] = shutdown_callback
     app.config['SK_VERSION'] = version
     app.config['SK_DB'] = db
+    app.config['SK_LOGGER'] = logger
 
     def generate_csrf_token():
         if '_csrf_token' not in session:
@@ -97,6 +98,10 @@ def create_app(settings, players, shutdown_callback, version, db):
         recent_scrobbles = db.get_recent_history(10)
         host = settings.get_host()
 
+        logger = current_app.config['SK_LOGGER']
+        log_lines = logger.get_recent_lines() if logger else []
+        log_errors = logger.get_recent_errors() if logger else []
+
         return render_template(
             'index.html',
             accounts=accounts,
@@ -104,8 +109,22 @@ def create_app(settings, players, shutdown_callback, version, db):
             available_players=available_players,
             host=host,
             recent_scrobbles=recent_scrobbles,
+            log_lines=log_lines,
+            log_errors=log_errors,
             version=version
         )
+
+    @app.route('/logs')
+    @auth_required
+    def logs():
+        """Return recent log lines and submission-failure lines as JSON"""
+        logger = current_app.config['SK_LOGGER']
+        if not logger:
+            return jsonify({'lines': [], 'errors': []})
+        return jsonify({
+            'lines': logger.get_recent_lines(),
+            'errors': logger.get_recent_errors()
+        })
 
     @app.route('/addAccount')
     @auth_required
@@ -215,9 +234,9 @@ def create_app(settings, players, shutdown_callback, version, db):
 class WebUi:
     """Web interface wrapper for SkrobbleDs"""
 
-    def __init__(self, settings, players, shutdown_callback, version, db):
+    def __init__(self, settings, players, shutdown_callback, version, db, logger=None):
         """Create the Flask app - call start() to serve (blocking)"""
-        self.app = create_app(settings, players, shutdown_callback, version, db)
+        self.app = create_app(settings, players, shutdown_callback, version, db, logger)
 
     def start(self):
         """Serve the web UI - blocks until the process exits"""

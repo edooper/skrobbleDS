@@ -56,6 +56,10 @@
         .scrobble-info { text-align: right; margin-left: 16px; flex-shrink: 0; }
         .scrobble-time { font-size: 12px; color: #8d96a0; margin-bottom: 2px; }
         .scrobble-player { font-size: 12px; color: #58a6ff; }
+        .callout-error { background-color: rgba(248, 81, 73, 0.1); border: 1px solid rgba(248, 81, 73, 0.4); border-radius: 6px; padding: 16px; margin-bottom: 16px; }
+        .callout-error-title { font-weight: 600; color: #f85149; margin-bottom: 8px; font-size: 14px; }
+        .callout-error-lines { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; color: #f0f6fc; white-space: pre-wrap; word-break: break-word; }
+        .log-block { background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px 16px; font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; line-height: 1.6; color: #c9d1d9; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
         @media (max-width: 768px) {
             .form-row { flex-direction: column; align-items: stretch; }
             input[type="text"], select { width: 100%; min-width: 0; }
@@ -196,6 +200,26 @@
             </div>
         </div>
 
+        <div class="section">
+            <div class="section-header">
+                <h2>Activity Log</h2>
+                <p>Last {{ log_lines|length if log_lines else 10 }} log lines, updated automatically</p>
+            </div>
+            <div class="section-content">
+                <div id="log-callout" class="callout-error" style="{{ '' if log_errors else 'display: none;' }}">
+                    <div class="callout-error-title">⚠ Tracks are not being submitted to Last.fm</div>
+                    <div id="log-callout-lines" class="callout-error-lines">{% for line in log_errors %}{{ line }}
+{% endfor %}</div>
+                </div>
+                {% if log_lines %}
+                <div id="log-block" class="log-block">{% for line in log_lines %}{{ line }}
+{% endfor %}</div>
+                {% else %}
+                <div id="log-block" class="log-block empty-state">No log activity yet</div>
+                {% endif %}
+            </div>
+        </div>
+
         <div class="section danger-zone">
             <div class="section-header">
                 <h2>Shutdown</h2>
@@ -214,5 +238,41 @@
             <div>Copyright © Rockfather 2016, edooper 2026 • Modernized for Python 3</div>
         </footer>
     </div>
+    <script>
+        (function () {
+            var block = document.getElementById('log-block');
+            var callout = document.getElementById('log-callout');
+            var calloutLines = document.getElementById('log-callout-lines');
+
+            function render(data) {
+                var lines = (data && data.lines) || [];
+                if (lines.length) {
+                    block.classList.remove('empty-state');
+                    // textContent avoids injecting markup from track names.
+                    block.textContent = lines.join('\n') + '\n';
+                } else {
+                    block.classList.add('empty-state');
+                    block.textContent = 'No log activity yet';
+                }
+
+                var errors = (data && data.errors) || [];
+                if (errors.length) {
+                    calloutLines.textContent = errors.join('\n') + '\n';
+                    callout.style.display = '';
+                } else {
+                    callout.style.display = 'none';
+                }
+            }
+
+            function poll() {
+                fetch('/logs', { headers: { 'Accept': 'application/json' } })
+                    .then(function (r) { return r.ok ? r.json() : null; })
+                    .then(function (data) { if (data) render(data); })
+                    .catch(function () { /* ignore transient errors */ });
+            }
+
+            setInterval(poll, 5000);
+        })();
+    </script>
 </body>
 </html>
