@@ -2,6 +2,8 @@
 
 Last.fm scrobbler for Linn DS and OpenHome-compliant UPnP media players.
 
+📖 **[Technical Overview →](https://edooper.github.io/skrobbleDS/)** — architecture, module map, scrobble rules, and configuration at a glance.
+
 ## Overview
 
 SkrobbleDS automatically scrobbles tracks played on your Linn DS or other OpenHome-compliant UPnP network music players to your Last.fm account. It discovers players on your network, monitors what's playing, and updates your Last.fm profile in real-time.

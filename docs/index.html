@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="SkrobbleDS — a Last.fm scrobbler for Linn DS and OpenHome UPnP network music players. Architecture, module map, scrobble rules, and configuration.">
+<title>SkrobbleDS — Technical Overview</title>
+<style>
+  html, body { margin: 0; }
+  :root {
+    /* light (base) */
+    --bg: #f5f7f9;
+    --panel: #ffffff;
+    --panel-2: #eef1f4;
+    --line: #dce1e7;
+    --ink: #161b20;
+    --muted: #5a6672;
+    --accent: #a75f0c;
+    --accent-bg: rgba(184, 108, 18, 0.10);
+    --good: #1c8558;
+    --good-bg: rgba(28, 133, 88, 0.10);
+    --bad: #c0342f;
+    --bad-bg: rgba(192, 52, 47, 0.09);
+    --wire: #c4ccd4;
+    --shadow: 0 1px 2px rgba(20,27,32,.06), 0 8px 24px rgba(20,27,32,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1116;
+      --panel: #151b21;
+      --panel-2: #1a222a;
+      --line: #28313b;
+      --ink: #dde4eb;
+      --muted: #8692a1;
+      --accent: #e8a13c;
+      --accent-bg: rgba(232, 161, 60, 0.12);
+      --good: #45b784;
+      --good-bg: rgba(69, 183, 132, 0.12);
+      --bad: #e5595d;
+      --bad-bg: rgba(229, 89, 93, 0.12);
+      --wire: #34404b;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f7f9; --panel: #ffffff; --panel-2: #eef1f4; --line: #dce1e7;
+    --ink: #161b20; --muted: #5a6672; --accent: #a75f0c; --accent-bg: rgba(184,108,18,.10);
+    --good: #1c8558; --good-bg: rgba(28,133,88,.10); --bad: #c0342f; --bad-bg: rgba(192,52,47,.09);
+    --wire: #c4ccd4; --shadow: 0 1px 2px rgba(20,27,32,.06), 0 8px 24px rgba(20,27,32,.05);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1116; --panel: #151b21; --panel-2: #1a222a; --line: #28313b;
+    --ink: #dde4eb; --muted: #8692a1; --accent: #e8a13c; --accent-bg: rgba(232,161,60,.12);
+    --good: #45b784; --good-bg: rgba(69,183,132,.12); --bad: #e5595d; --bad-bg: rgba(229,89,93,.12);
+    --wire: #34404b; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    font-size: 16px;
+  }
+  .mono { font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---- masthead ---- */
+  header.mast {
+    border-bottom: 1px solid var(--line);
+    padding: 72px 0 40px;
+    position: relative;
+    overflow: hidden;
+  }
+  .kicker {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 12px; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 18px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .kicker::before { content: ""; width: 26px; height: 2px; background: var(--accent); display: inline-block; }
+  h1.word {
+    font-size: clamp(40px, 8vw, 76px);
+    line-height: .98; letter-spacing: -.03em; font-weight: 800;
+    margin: 0; text-wrap: balance;
+  }
+  h1.word .ds { color: var(--accent); }
+  .lede {
+    font-size: clamp(17px, 2.4vw, 21px); color: var(--muted);
+    max-width: 60ch; margin: 20px 0 0; line-height: 1.5;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 30px; }
+  .chip {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 12.5px; color: var(--ink);
+    background: var(--panel-2); border: 1px solid var(--line);
+    padding: 5px 11px; border-radius: 999px; white-space: nowrap;
+  }
+  .chip b { color: var(--accent); font-weight: 600; }
+
+  /* ---- section scaffolding ---- */
+  section { padding: 56px 0; border-bottom: 1px solid var(--line); }
+  .eyebrow {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 12px; letter-spacing: .2em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 8px;
+  }
+  .eyebrow .num { color: var(--accent); }
+  h2 { font-size: clamp(24px, 3.6vw, 34px); letter-spacing: -.02em; font-weight: 750; margin: 0 0 14px; text-wrap: balance; }
+  h2 { font-weight: 700; }
+  .section-intro { color: var(--muted); max-width: 68ch; margin: 0 0 28px; font-size: 16.5px; }
+  p { margin: 0 0 16px; }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; }
+  a:hover { border-bottom-color: var(--accent); }
+  strong { font-weight: 650; }
+  code:not(pre code) {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: .88em; background: var(--panel-2); border: 1px solid var(--line);
+    padding: 1px 6px; border-radius: 5px; color: var(--ink);
+  }
+
+  /* ---- signal path ---- */
+  .signal {
+    background:
+      radial-gradient(120% 140% at 15% 0%, var(--accent-bg), transparent 55%),
+      var(--panel);
+    border: 1px solid var(--line); border-radius: 14px;
+    padding: 34px 26px; box-shadow: var(--shadow);
+    margin-top: 30px;
+  }
+  .chain { display: flex; align-items: stretch; gap: 0; flex-wrap: nowrap; }
+  .node {
+    flex: 1 1 0; min-width: 0;
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px 14px; text-align: center;
+    position: relative;
+  }
+  .node.accent { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .node .role {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 6px;
+  }
+  .node.accent .role { color: var(--accent); }
+  .node .name { font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
+  .node .sub { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
+  .wire {
+    flex: 0 0 44px; align-self: center; position: relative; height: 2px;
+    background: var(--wire);
+  }
+  .wire::after {
+    content: "▶"; position: absolute; right: -2px; top: 50%; transform: translateY(-50%);
+    font-size: 10px; color: var(--accent);
+  }
+  .wire .tag {
+    position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px;
+    color: var(--muted); white-space: nowrap;
+  }
+  .retn {
+    margin-top: 18px; display: flex; align-items: center; gap: 12px;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--muted);
+    border-top: 1px dashed var(--line); padding-top: 16px;
+  }
+  .retn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); flex: 0 0 auto; }
+  @media (max-width: 720px) {
+    .chain { flex-direction: column; }
+    .wire { width: 2px; height: 30px; flex-basis: 30px; align-self: center; }
+    .wire::after { right: 50%; top: auto; bottom: -2px; transform: translateX(50%); }
+    .wire .tag { bottom: 50%; left: 14px; transform: translateY(50%); }
+  }
+
+  /* ---- module grid ---- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+  .mod {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 11px;
+    padding: 18px; display: flex; flex-direction: column; gap: 6px;
+    transition: border-color .15s ease, transform .15s ease;
+  }
+  .mod:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .mod .file { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13.5px; font-weight: 600; color: var(--accent); }
+  .mod .tag2 {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10px;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+  }
+  .mod p { margin: 4px 0 0; font-size: 14px; color: var(--ink); line-height: 1.5; }
+  .mod p .m { color: var(--muted); }
+
+  /* ---- rules / stat tiles ---- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+  .tile {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 20px;
+  }
+  .tile .big {
+    font-size: 40px; font-weight: 800; letter-spacing: -.03em; line-height: 1;
+    font-variant-numeric: tabular-nums; color: var(--accent);
+  }
+  .tile .big small { font-size: 18px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+  .tile .lab { font-size: 13.5px; color: var(--muted); margin-top: 10px; line-height: 1.45; }
+  .tile .const { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; color: var(--ink); margin-top: 8px; opacity: .8; }
+
+  .callout {
+    margin-top: 22px; border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    background: var(--accent-bg); border-radius: 9px; padding: 16px 18px; font-size: 15px;
+  }
+  .callout.rule { border-left-color: var(--good); background: var(--good-bg); }
+
+  /* ---- data flow steps ---- */
+  ol.flow { list-style: none; counter-reset: step; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  ol.flow li {
+    counter-increment: step; position: relative; padding: 14px 0 14px 52px; border-bottom: 1px solid var(--line);
+  }
+  ol.flow li:last-child { border-bottom: none; }
+  ol.flow li::before {
+    content: counter(step, decimal-leading-zero); position: absolute; left: 0; top: 12px;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px; font-weight: 600;
+    color: var(--accent); background: var(--accent-bg); border: 1px solid var(--line);
+    width: 34px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 7px;
+  }
+  ol.flow li .h { font-weight: 650; }
+  ol.flow li .d { color: var(--muted); font-size: 14.5px; }
+
+  /* ---- config table ---- */
+  .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 11px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 560px; }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--muted); background: var(--panel-2); font-weight: 600;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td .var { font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: var(--accent); font-weight: 600; font-size: 13px; }
+  td .def { font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: var(--muted); font-size: 12.5px; }
+
+  /* ---- code blocks ---- */
+  pre {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 11px;
+    padding: 18px 20px; overflow-x: auto; margin: 0;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13.5px; line-height: 1.7;
+  }
+  pre .c { color: var(--muted); }
+  pre .p { color: var(--accent); }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* ---- new feature banner ---- */
+  .feature {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  .feature .head { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+  .feature .head .badge {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 10.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--good); background: var(--good-bg); border: 1px solid var(--line);
+    padding: 3px 9px; border-radius: 999px;
+  }
+  .feature .head h3 { margin: 0; font-size: 16px; }
+  .feature .body { padding: 20px; }
+  .logline { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12.5px; line-height: 1.7; }
+  .logline .err { color: var(--bad); }
+  .logbox { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-top: 12px; }
+  .errbanner {
+    background: var(--bad-bg); border: 1px solid var(--line); border-left: 3px solid var(--bad);
+    border-radius: 8px; padding: 12px 14px; margin-bottom: 10px;
+  }
+  .errbanner .t { color: var(--bad); font-weight: 650; font-size: 13px; margin-bottom: 6px; }
+
+  footer { padding: 44px 0 60px; color: var(--muted); font-size: 13.5px; }
+  footer .fnote { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header class="mast">
+  <div class="wrap">
+    <p class="kicker">Technical Overview · v0.95</p>
+    <h1 class="word">Skrobble<span class="ds">DS</span></h1>
+    <p class="lede">A Last.fm scrobbler for Linn DS and OpenHome-compliant UPnP network music players. It finds your player on the LAN, listens to what it plays, and submits each track to Last.fm — no cloud, no account linking on the device, just a small daemon on your network.</p>
+    <div class="chips">
+      <span class="chip"><b>Python</b> 3.8+</span>
+      <span class="chip">stdlib-only · <b>Flask</b> + <b>waitress</b></span>
+      <span class="chip">Web UI <b>:9099</b></span>
+      <span class="chip">UPnP / SSDP discovery</span>
+      <span class="chip">SQLite (WAL)</span>
+      <span class="chip">Docker · host networking</span>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow"><span class="num">01</span> — The signal path</p>
+    <h2>How a played track becomes a scrobble</h2>
+    <p class="section-intro">The whole system is one idea: a <strong>producer/consumer split decoupled by a singleton event bus</strong>. Players never call the scrobbler directly. They observe the hardware and emit events; the scrobbler consumes them and talks to Last.fm. Everything downstream hangs off that seam.</p>
+
+    <div class="signal">
+      <div class="chain">
+        <div class="node">
+          <div class="role">Producer</div>
+          <div class="name">Player</div>
+          <div class="sub">UPnP events → state machine → DIDL-Lite metadata</div>
+        </div>
+        <div class="wire"><span class="tag">now_playing · scrobble</span></div>
+        <div class="node accent">
+          <div class="role">Seam</div>
+          <div class="name">EventBus</div>
+          <div class="sub">singleton pub/sub, thread-safe dispatch</div>
+        </div>
+        <div class="wire"><span class="tag">queue</span></div>
+        <div class="node">
+          <div class="role">Consumer</div>
+          <div class="name">Scrobbler</div>
+          <div class="sub">applies Last.fm rules on two daemon threads</div>
+        </div>
+        <div class="wire"><span class="tag">MD5-signed</span></div>
+        <div class="node">
+          <div class="role">Sink</div>
+          <div class="name">Last.fm API</div>
+          <div class="sub">ws.audioscrobbler.com over stdlib urllib</div>
+        </div>
+      </div>
+      <div class="retn">
+        <span class="dot"></span>
+        Failed submissions fall back to the SQLite <span class="mono">scrobble_cache</span> and are retried — queue-driven, plus a periodic drain every 300s. Nothing queued at shutdown is dropped.
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow"><span class="num">02</span> — The map</p>
+    <h2>Modules, and what each one owns</h2>
+    <p class="section-intro">Pure Python. The top-level modules use PEP 8 <span class="mono">snake_case</span>; the self-contained <span class="mono">Upnp/</span> control-point package keeps a legacy <span class="mono">CamelCase</span> style ported from the original project.</p>
+    <div class="grid">
+      <div class="mod">
+        <span class="tag2">Entry · Orchestrator</span>
+        <span class="file">SkrobbleDs.py</span>
+        <p>Constructs every component, wires the event-bus logger, installs SIGTERM/SIGINT handlers, then blocks in <code>webui.start()</code>. Implements <span class="m">DiscoveryObserver</span>: a discovered device becomes a Player, a departed one is shut down.</p>
+      </div>
+      <div class="mod">
+        <span class="tag2">The seam</span>
+        <span class="file">EventBus.py</span>
+        <p>Singleton pub/sub. Copies its listener list before dispatch so callbacks run <span class="m">outside</span> the lock. Two event types flow across it: <code>now_playing</code> and <code>scrobble</code>.</p>
+      </div>
+      <div class="mod">
+        <span class="tag2">UPnP control point</span>
+        <span class="file">Upnp/</span>
+        <p>Self-contained SSDP + GENA implementation: <span class="m">Discovery, Device, EventServer, EventSub, Ssdp, HttpPacket, HttpConnection, NetUtil, Service.</span> Only <code>urn:linn-co-uk:device:Source:1</code> devices are discovered.</p>
+      </div>
+      <div class="mod">
+        <span class="tag2">Producer</span>
+        <span class="file">Player.py</span>
+        <p>Wraps one device. Subscribes to Info + Playlist/Ds services (Cara <span class="m">av-openhome-org</span> and Davaar <span class="m">linn-co-uk</span> names). Debounced <code>threading.Timer</code>s wait for metadata and confirm play status before emitting.</p>
+      </div>
+      <div class="mod">
+        <span class="tag2">Consumer</span>
+        <span class="file">Scrobbler.py</span>
+        <p>Two <code>queue.Queue</code>s drained by two daemon threads. Computes elapsed playtime tolerant of pauses/buffering, applies the scrobble rules, and routes failures to the cache. Only players in settings are scrobbled.</p>
+      </div>
+      <div class="mod">
+        <span class="tag2">API client</span>
+        <span class="file">LastFm.py</span>
+        <p>Talks to <span class="m">ws.audioscrobbler.com</span> via urllib. Config lazy-loads on first use. All authed calls MD5-signed. Auth flow: <code>getToken</code> → user authorizes → <code>getSession</code> → per-user session key.</p>
+      </div>
+      <div class="mod">
+        <span class="tag2">Persistence</span>
+        <span class="file">Database.py</span>
+        <p>SQLite in WAL mode for concurrent scrobbler + web-UI access. Two tables: <code>scrobble_cache</code> (FIFO retry, <span class="m">BEGIN IMMEDIATE</span> to avoid double-reads) and <code>scrobble_history</code> (pruned). Injected, not imported globally.</p>
+      </div>
+      <div class="mod">
+        <span class="tag2">State</span>
+        <span class="file">Settings.py</span>
+        <p>Accounts, players, network interface, and a per-player → session-key map. Guarded by an <code>RLock</code>. Saves atomically (temp file + <code>os.replace</code>) and preserves the API credentials already in the file.</p>
+      </div>
+      <div class="mod">
+        <span class="tag2">Interface</span>
+        <span class="file">WebUi.py</span>
+        <p>Flask application factory. All mutating routes are POST + CSRF-protected; optional basic auth via <code>hmac.compare_digest</code>. Served by waitress by default. Routes: <code>/</code>, <code>/addAccount</code>, <code>/logs</code>, <code>/health</code>, <code>/exit</code>.</p>
+      </div>
+      <div class="mod">
+        <span class="tag2">Observability</span>
+        <span class="file">Logger.py</span>
+        <p>Thread-safe queue-drained logger. Keeps an in-memory ring buffer of recent lines (always available, independent of file logging) that the web UI surfaces.</p>
+      </div>
+      <div class="mod">
+        <span class="tag2">Tuning</span>
+        <span class="file">Constants.py</span>
+        <p>Every threshold and timer lives here — scrobble rules, debounce delays, device type, log-buffer sizes. Change behavior here, never inline.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow"><span class="num">03</span> — Lifecycle</p>
+    <h2>From discovery to decision</h2>
+    <ol class="flow">
+      <li><span class="h">Discover.</span> <span class="d">Discovery sends M-SEARCH and listens for SSDP alive/byebye. Source devices are retrieved, described, and given per-device expiry timers.</span></li>
+      <li><span class="h">Subscribe.</span> <span class="d">Each device becomes a Player that GENA-subscribes to its Info and Playlist/Ds services and starts receiving playback events.</span></li>
+      <li><span class="h">Parse &amp; debounce.</span> <span class="d">Incoming events drive a small state machine. DIDL-Lite metadata is parsed; debounced timers wait ~10s for metadata and play status to settle.</span></li>
+      <li><span class="h">Now playing.</span> <span class="d">On confirmed play, the Player emits <code>now_playing</code>; the Scrobbler pushes a track.updateNowPlaying to Last.fm.</span></li>
+      <li><span class="h">Record timestamps.</span> <span class="d">Playing/stopped timestamp pairs accumulate on the current track — the raw material for computing real elapsed playtime.</span></li>
+      <li><span class="h">Decide on stop.</span> <span class="d">Shortly after a Stop, the Player emits <code>scrobble</code>. The Scrobbler tests the track against the rules below and submits — or caches for retry.</span></li>
+    </ol>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow"><span class="num">04</span> — The rules</p>
+    <h2>When a track actually counts</h2>
+    <p class="section-intro">These are Last.fm's scrobbling rules, encoded as constants. Elapsed playtime is computed by pairing playing/stopped timestamps, so pauses and buffering don't inflate the count.</p>
+    <div class="tiles">
+      <div class="tile">
+        <div class="big">30<small>s</small></div>
+        <div class="lab">Minimum track duration. Anything shorter is never scrobbled.</div>
+        <div class="const mono">SCROBBLE_MIN_DURATION</div>
+      </div>
+      <div class="tile">
+        <div class="big">50<small>%</small></div>
+        <div class="lab">Scrobble once playtime passes half the track's duration…</div>
+        <div class="const mono">SCROBBLE_PERCENT_THRESHOLD</div>
+      </div>
+      <div class="tile">
+        <div class="big">240<small>s</small></div>
+        <div class="lab">…or once playtime passes four minutes, whichever comes first.</div>
+        <div class="const mono">SCROBBLE_TIME_THRESHOLD</div>
+      </div>
+      <div class="tile">
+        <div class="big">10<small>s</small></div>
+        <div class="lab">Debounce delays: wait for metadata, confirm status, scrobble after Stop.</div>
+        <div class="const mono">PLAYER_*_DELAY</div>
+      </div>
+    </div>
+    <div class="callout rule">
+      <strong>The test, in one line:</strong> <span class="mono">duration &gt; 30s</span> <strong>and</strong> ( <span class="mono">playtime &gt; 50% × duration</span> <strong>or</strong> <span class="mono">playtime &gt; 240s</span> ). Pass → submit and record to history. Fail the network, not the rule → cache and retry.
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow"><span class="num">05</span> — Recently added</p>
+    <h2>Activity Log &amp; submission-failure callout</h2>
+    <p class="section-intro">The web UI now surfaces what the daemon is doing without touching a shell. The Logger keeps an in-memory ring buffer; the page renders the last 10 lines and polls <code>/logs</code> every 5 seconds. When Last.fm rejects a submission, a red banner calls it out explicitly.</p>
+    <div class="feature">
+      <div class="head">
+        <span class="badge">New</span>
+        <h3>Activity Log</h3>
+      </div>
+      <div class="body">
+        <div class="errbanner">
+          <div class="t">⚠ Tracks are not being submitted to Last.fm</div>
+          <div class="logline"><span class="err">[13/07/26 15:59:28] [Last.fm HTTP Error] track.updateNowPlaying failed with HTTP 403: Forbidden</span></div>
+        </div>
+        <div class="logbox">
+          <div class="logline">
+            [13/07/26 15:59:28] Linn Selekt Organik DSM: Submitting now playing -&gt; The Jazz Butcher - Next Move Sideways (295s)<br>
+            <span class="err">[13/07/26 15:59:28] [Last.fm HTTP Error] track.updateNowPlaying failed with HTTP 403: Forbidden</span>
+          </div>
+        </div>
+        <p style="margin:14px 0 0; font-size:14px; color:var(--muted);">The buffer works whether or not file logging is enabled. The callout auto-clears once error lines scroll out of the 200-line window. Log lines render via <code>textContent</code> so a track name can never inject markup.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow"><span class="num">06</span> — Configuration</p>
+    <h2>One config file, a handful of env vars</h2>
+    <p class="section-intro">Credentials live in <code>config/config.json</code> (copied from the example). The <code>accounts</code>, <code>players</code>, and <code>network</code> sections are written by the web UI at runtime — don't hand-edit those. Environment variables override and tune.</p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Variable</th><th>Default</th><th>Effect</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="var">LASTFM_API_KEY</span><br><span class="var">LASTFM_API_SECRET</span></td><td><span class="def">—</span></td><td>Override the credentials in config.json.</td></tr>
+          <tr><td><span class="var">WEBUI_PORT</span></td><td><span class="def">9099</span></td><td>Port the configuration web UI listens on.</td></tr>
+          <tr><td><span class="var">WEBUI_USER</span><br><span class="var">WEBUI_PASS</span></td><td><span class="def">—</span></td><td>Set both to enable HTTP basic auth on the UI.</td></tr>
+          <tr><td><span class="var">DEBUG</span></td><td><span class="def">false</span></td><td>Emit debug-level log lines.</td></tr>
+          <tr><td><span class="var">LOG_FILE</span></td><td><span class="def">false</span></td><td>Also write logs to <code>config/skrobbleds.log</code>.</td></tr>
+          <tr><td><span class="var">USE_WAITRESS</span></td><td><span class="def">true</span></td><td>Serve via waitress; falls back to the Flask dev server if missing.</td></tr>
+          <tr><td><span class="var">CONFIG_DIR</span></td><td><span class="def">config</span></td><td>Relocate the config directory — used for containers.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow"><span class="num">07</span> — Running it</p>
+    <h2>Commands</h2>
+    <div class="two-col">
+      <div>
+        <p style="font-size:13px; color:var(--muted); margin-bottom:8px;" class="mono">FROM SOURCE / PACKAGE</p>
+        <pre><span class="c"># foreground, serves UI on :9099</span>
+python3 SkrobbleDs.py
+
+<span class="c"># editable install → console script</span>
+pip install -e .
+skrobbleds
+
+<span class="c"># health check</span>
+curl <span class="p">http://localhost:9099/health</span></pre>
+      </div>
+      <div>
+        <p style="font-size:13px; color:var(--muted); margin-bottom:8px;" class="mono">DOCKER &amp; TESTS</p>
+        <pre><span class="c"># host networking is required for</span>
+<span class="c"># UPnP multicast discovery</span>
+docker-compose up -d
+
+<span class="c"># pytest — repo root on sys.path</span>
+pytest
+pytest tests/test_scrobbler.py</pre>
+      </div>
+    </div>
+    <div class="callout">
+      <strong>Why host networking?</strong> UPnP/SSDP discovery relies on multicast on the local segment. Bridged container networks don't forward it, so the container must share the host's network stack to see your players.
+    </div>
+  </div>
+</section>
+
+<section style="border-bottom:none;">
+  <div class="wrap">
+    <p class="eyebrow"><span class="num">08</span> — Things to hold onto</p>
+    <h2>Conventions &amp; gotchas</h2>
+    <div class="grid">
+      <div class="mod"><span class="tag2">Threading</span><p>Player state under an <code>RLock</code>, Settings under an <code>RLock</code>, the shared player list under <code>list_mutex</code>, the EventBus copies listeners before dispatch. Preserve these when editing.</p></div>
+      <div class="mod"><span class="tag2">Git hygiene</span><p><code>config/</code> is ignored except the example. Never commit <code>config.json</code>, <code>skrobbleds.db</code>, or <code>skrobbleds.log</code>.</p></div>
+      <div class="mod"><span class="tag2">Tuning</span><p>Scrobble thresholds and timer delays live in <code>Constants.py</code>. Change them there, not inline at the call site.</p></div>
+      <div class="mod"><span class="tag2">Two dialects</span><p>Service names come in both flavours — Cara <code>urn:av-openhome-org:*</code> and Davaar <code>urn:linn-co-uk:*</code>. Player handles both.</p></div>
+      <div class="mod"><span class="tag2">Naming styles</span><p><code>Upnp/</code> is legacy CamelCase; top-level modules are PEP 8. Match whichever area you're editing.</p></div>
+      <div class="mod"><span class="tag2">Clean shutdown</span><p>Shutdown enqueues a <code>'bye'</code> sentinel <em>after</em> pending items, so queued scrobbles are submitted, never dropped.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="fnote">
+      <span>SkrobbleDS v0.95 · Last.fm scrobbler for OpenHome / Linn DS players</span>
+      <span class="mono">© Rockfather 2016, edooper 2026 · modernized for Python 3</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
