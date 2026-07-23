@@ -1,0 +1,122 @@
+"""Regression tests for track-change metadata races.
+
+Duration and Metadata are independent, unsynchronized UPnP events on the
+Info service. On a fast track change, Duration can arrive (and the
+metadata debounce timer can fire) before the new track's Metadata XML
+does - these tests guard against the previous track's stale title/artist
+leaking into the new track's record.
+"""
+import threading
+import time
+from types import SimpleNamespace
+
+import pytest
+
+import Constants
+import EventBus
+import Player
+
+
+DELAY = 0.05
+
+NEW_TRACK_DIDL = (
+    '<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"'
+    ' xmlns:dc="http://purl.org/dc/elements/1.1/"'
+    ' xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">'
+    '<item>'
+    '<dc:title>New Song</dc:title>'
+    '<upnp:artist role="Performer">New Artist</upnp:artist>'
+    '<upnp:album>New Album</upnp:album>'
+    '<upnp:originalTrackNumber>2</upnp:originalTrackNumber>'
+    '</item>'
+    '</DIDL-Lite>'
+)
+
+
+@pytest.fixture
+def now_playing_events():
+    collected = []
+
+    def collector(info):
+        collected.append(info)
+
+    bus = EventBus.EventBus()
+    bus.subscribe('now_playing', collector)
+    yield collected
+    bus.unsubscribe('now_playing', collector)
+
+
+@pytest.fixture
+def player(monkeypatch):
+    monkeypatch.setattr(Constants, 'PLAYER_METADATA_UPDATE_DELAY', DELAY, raising=False)
+    p = Player.Player.__new__(Player.Player)
+    p._lock = threading.RLock()
+    p.bus = EventBus.EventBus()
+    p.log = lambda msg: None
+    p.dev = SimpleNamespace(FriendlyName=lambda: 'TestPlayer')
+    p.update_meta_timer = None
+    p.play_status_timer = None
+    p.stop_scrobble_timer = None
+    p.is_playing = True
+    p.duration = 200
+    # Simulate a previous track that already finished syncing.
+    p.meta = {'title': 'Old Song', 'artist': 'Old Artist', 'album': 'Old Album', 'tracknum': '1'}
+    p.current = {
+        'playing': [time.time() - 10],
+        'stopped': [],
+        'duration': 200,
+        'player': 'TestPlayer',
+        'artist': 'Old Artist',
+        'title': 'Old Song',
+        'album': 'Old Album',
+        'tracknum': '1',
+    }
+    yield p
+    for timer in (p.update_meta_timer, p.play_status_timer, p.stop_scrobble_timer):
+        if timer:
+            timer.cancel()
+
+
+def _wait_for_timer():
+    time.sleep(DELAY * 4)
+
+
+def test_trackcount_resets_meta_as_well_as_current(player):
+    player._on_info_event('TrackCount', '2', 1)
+    assert player.meta == {'title': '', 'artist': '', 'album': '', 'tracknum': ''}
+    assert player.current['title'] == ''
+    assert player.current['artist'] == ''
+
+
+def test_duration_before_late_metadata_does_not_produce_stale_title(player, now_playing_events):
+    player._on_info_event('TrackCount', '2', 1)
+    player._on_info_event('Duration', '111', 2)
+    _wait_for_timer()
+
+    # Debounce timer fired before Metadata arrived - must not carry over
+    # the previous track's title/artist, only the new duration.
+    assert player.current['duration'] == 111
+    assert player.current['title'] == ''
+    assert player.current['artist'] == ''
+
+    player._on_info_event('Metadata', NEW_TRACK_DIDL, 3)
+
+    assert player.current['title'] == 'New Song'
+    assert player.current['artist'] == 'New Artist'
+    assert player.current['duration'] == 111, 'duration must not revert once correctly set'
+    assert now_playing_events[-1]['title'] == 'New Song'
+    assert now_playing_events[-1]['duration'] == 111
+
+
+def test_prompt_metadata_resyncs_immediately_and_skips_duplicate_timer_emit(player, now_playing_events):
+    player._on_info_event('TrackCount', '2', 1)
+    player._on_info_event('Metadata', NEW_TRACK_DIDL, 2)
+
+    assert player.current['title'] == 'New Song'
+    assert len(now_playing_events) == 1
+
+    _wait_for_timer()
+
+    # The original debounce timer must have been cancelled once the
+    # manual resync ran, so it doesn't redundantly re-emit later.
+    assert len(now_playing_events) == 1

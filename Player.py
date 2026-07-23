@@ -107,6 +107,14 @@ class Player:
                 self.duration = int(value)
             elif name == 'Metadata':
                 self._parse_metadata(value)
+                # Metadata can arrive after the update_meta_timer already
+                # fired (e.g. Duration lands first on a fast track change);
+                # resync so a late title/artist isn't lost or left stale.
+                if self.is_playing and self.meta.get('title') != self.current.get('title'):
+                    if self.update_meta_timer:
+                        self.update_meta_timer.cancel()
+                        self.update_meta_timer = None
+                    self._update_meta()
             elif name == 'TrackCount':
                 self.log(f'[DEBUG] {self.name}: Track change event detected')
                 if self.update_meta_timer:
@@ -128,6 +136,9 @@ class Player:
                     'tracknum': '',
                     'title': ''
                 }
+                # Prevent the previous track's metadata from being copied
+                # into this track if its Metadata event hasn't arrived yet
+                self.meta = {'title': '', 'artist': '', 'album': '', 'tracknum': ''}
                 if self.is_playing:
                     self.current['playing'].append(time.time())
                 else:
