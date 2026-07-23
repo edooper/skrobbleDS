@@ -63,6 +63,7 @@ class EventSub(EventServer.EventObserver):
         try:
             body = etree.fromstring( aXmlBody )
         except Exception as e:
+            self.log('[DEBUG] Failed to parse event body for SID %s: %s' % (self.iSubId, e))
             return
 
         properties = body.iter( '{urn:schemas-upnp-org:event-1-0}property' )

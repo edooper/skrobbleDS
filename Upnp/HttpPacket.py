@@ -76,10 +76,15 @@ class HttpPacket:
         self.iBody    = ''
 
         try:
-            # split the data packet into a headers and body section
-            t = re.split( '\r\n\r\n', aData )
-            headers = t[0]
-            self.iBody = t[1]
+            # split the data packet into a headers section and everything
+            # after it - only on the FIRST blank line, since a chunked body
+            # can legitimately contain further '\r\n\r\n' sequences (e.g. its
+            # terminating chunk) that must stay part of the body
+            idx = aData.find('\r\n\r\n')
+            if idx == -1:
+                raise IncompletePacket(aData)
+            headers = aData[:idx]
+            rest = aData[idx + 4:]
             # split the headers section into a list of individual headers (the '\r\n' gets removed from each)
             headerList = re.split( '\r\n', headers )
 
@@ -92,10 +97,24 @@ class HttpPacket:
                 if m:
                     self.iHeaders[ m.group('name').lower() ] = m.group('value')
 
+        except IncompletePacket:
+            raise
         except Exception as e:
             raise InvalidPacket(aData)
 
         # Do this last
+        transferEncoding = self.Header('Transfer-Encoding')
+        if transferEncoding and 'chunked' in transferEncoding.lower():
+            decoded, excess = self._decode_chunked(rest)
+            if decoded is None:
+                # Not all chunks have arrived yet
+                raise IncompletePacket(aData)
+            self.iBody = decoded
+            if excess:
+                return excess
+            return
+
+        self.iBody = rest
         contentLen = self.Header('Content-Length')
         if contentLen:
             if int(contentLen) > len(self.iBody):
@@ -107,6 +126,40 @@ class HttpPacket:
                 xs = self.iBody[int(contentLen):]
                 self.iBody = self.iBody[0:int(contentLen)]
                 return xs
+
+    @staticmethod
+    def _decode_chunked(aRaw):
+        """Decode a chunked-transfer-encoded body. Returns (body, excess) once
+            all chunks (including the terminating zero-length chunk) have been
+            received, or (None, None) if more data is still needed."""
+        body = ''
+        pos = 0
+        while True:
+            lineEnd = aRaw.find('\r\n', pos)
+            if lineEnd == -1:
+                return None, None
+
+            sizeStr = aRaw[pos:lineEnd].split(';', 1)[0].strip()
+            try:
+                size = int(sizeStr, 16)
+            except ValueError:
+                raise InvalidPacket(aRaw)
+
+            chunkStart = lineEnd + 2
+            if size == 0:
+                # Terminating chunk - the rest is optional trailers, ended by
+                # a blank line; we don't expect trailers from UPnP eventing
+                trailerEnd = aRaw.find('\r\n', chunkStart)
+                if trailerEnd == -1:
+                    return None, None
+                return body, aRaw[trailerEnd + 2:] or None
+
+            chunkEnd = chunkStart + size
+            if chunkEnd + 2 > len(aRaw):
+                return None, None
+
+            body += aRaw[chunkStart:chunkEnd]
+            pos = chunkEnd + 2
 
 
 class HttpRequest(HttpPacket):

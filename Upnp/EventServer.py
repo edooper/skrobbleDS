@@ -219,7 +219,11 @@ class EventServer(Thread):
 
                             except Exception as e:
                                 # Invalid packet - discard the session buffer so
-                                # one bad message can't poison later ones
+                                # one bad message can't poison later ones.
+                                # Surfaced via traceback so a malformed/unsupported
+                                # NOTIFY doesn't just vanish silently.
+                                print('[EventServer] Discarding unparsable HTTP packet: %r' % (e,))
+                                traceback.print_exc()
                                 connSessions[sock].SetData('')
                                 badMsg = True
 

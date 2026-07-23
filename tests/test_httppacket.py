@@ -15,6 +15,20 @@ NOTIFY = (
     'hello'
 )
 
+CHUNKED_NOTIFY = (
+    'NOTIFY /eventURL HTTP/1.1\r\n'
+    'HOST: 192.168.1.10:5600\r\n'
+    'CONTENT-TYPE: text/xml\r\n'
+    'TRANSFER-ENCODING: chunked\r\n'
+    'SID: uuid:abc\r\n'
+    'SEQ: 0\r\n'
+    '\r\n'
+    '5\r\n'
+    'hello\r\n'
+    '0\r\n'
+    '\r\n'
+)
+
 
 class TestHttpRequest:
     def test_parse_request_line_and_headers(self):
@@ -51,6 +65,53 @@ class TestHttpRequest:
         pkt = HttpPacket.HttpRequest()
         with pytest.raises(HttpPacket.InvalidRequest):
             pkt.Set('complete garbage')
+
+    def test_incomplete_headers_raises_incomplete(self):
+        # Headers section itself hasn't fully arrived yet - must be treated
+        # as needing more data, not as a malformed packet.
+        pkt = HttpPacket.HttpRequest()
+        with pytest.raises(HttpPacket.IncompletePacket):
+            pkt.Set('NOTIFY /eventURL HTTP/1.1\r\nHOST: 192.168.1.10:5600\r\nSID: uuid:abc')
+
+    def test_chunked_body_decoded(self):
+        pkt = HttpPacket.HttpRequest()
+        pkt.Set(CHUNKED_NOTIFY)
+        assert pkt.Body() == 'hello'
+        assert pkt.Header('SID') == 'uuid:abc'
+
+    def test_chunked_multiple_chunks_concatenated(self):
+        multi = (
+            'NOTIFY /eventURL HTTP/1.1\r\n'
+            'TRANSFER-ENCODING: chunked\r\n'
+            '\r\n'
+            '5\r\n'
+            'hello\r\n'
+            '6\r\n'
+            ' world\r\n'
+            '0\r\n'
+            '\r\n'
+        )
+        pkt = HttpPacket.HttpRequest()
+        pkt.Set(multi)
+        assert pkt.Body() == 'hello world'
+
+    def test_chunked_missing_terminator_raises_incomplete(self):
+        partial = (
+            'NOTIFY /eventURL HTTP/1.1\r\n'
+            'TRANSFER-ENCODING: chunked\r\n'
+            '\r\n'
+            '5\r\n'
+            'hel'
+        )
+        pkt = HttpPacket.HttpRequest()
+        with pytest.raises(HttpPacket.IncompletePacket):
+            pkt.Set(partial)
+
+    def test_chunked_excess_data_returned(self):
+        pkt = HttpPacket.HttpRequest()
+        extra = pkt.Set(CHUNKED_NOTIFY + 'NEXT')
+        assert pkt.Body() == 'hello'
+        assert extra == 'NEXT'
 
 
 class TestHttpResponse:
