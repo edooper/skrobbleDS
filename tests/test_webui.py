@@ -1,4 +1,10 @@
 """Tests for the web UI /logs endpoint."""
+import pytest
+
+# WebUi imports Flask at module level; skip the file rather than fail
+# collection where the optional web-UI dependency isn't installed
+pytest.importorskip('flask')
+
 import WebUi
 
 

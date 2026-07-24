@@ -35,6 +35,8 @@ config/*.db
 prompt.txt
 CLAUDE.md
 GEMINI.md
+# Symlink to the NAS build/deploy copy - machine-specific, never commit
+docker
 # SQLite WAL sidecar files
 config/*.db-wal
 config/*.db-shm
