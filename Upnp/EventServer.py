@@ -86,6 +86,31 @@ class EventServer(Thread):
         self.iStopped   = Event()
         self.iStopped.set()
 
+    @staticmethod
+    def _extract_packets(session):
+        """Parse and remove every complete HTTP request currently buffered in
+           the session, returning them as a list. Any trailing incomplete bytes
+           are left in the session to be completed by the next read. An
+           unparsable packet is logged and the buffer discarded so one bad
+           message can't poison the ones behind it."""
+        packets = []
+        while session.Data():
+            recvpkt = HttpPacket.HttpRequest()
+            try:
+                xs = recvpkt.Set( session.Data() )
+            except HttpPacket.IncompletePacket:
+                # more data still to arrive - keep what we have and wait
+                break
+            except Exception as e:
+                print('[EventServer] Discarding unparsable HTTP packet: %r' % (e,))
+                traceback.print_exc()
+                session.SetData(b'')
+                break
+            # A full packet was parsed - keep any trailing bytes for the next one
+            session.SetData(xs)
+            packets.append(recvpkt)
+        return packets
+
     def AddObserver(self, aObs):
         """Add an observer to listen to events."""
         self.iLock.acquire()
@@ -208,37 +233,15 @@ class EventServer(Thread):
                             toRemove.append(sock)
 
                         else:
-                            # Convert the data to a HTTP request packet
-                            badMsg = False
-                            try:
-                                connSessions[sock].Append(data)
-                                recvpkt = HttpPacket.HttpRequest()
-                                xs = recvpkt.Set( connSessions[sock].Data() )
-                                # A full packet has been received - reset the session data
-                                connSessions[sock].SetData(xs)
-
-                            except HttpPacket.IncompletePacket as e:
-                                # more data to receive - keep accumulating
-                                badMsg = True
-
-                            except Exception as e:
-                                # Invalid packet - discard the session buffer so
-                                # one bad message can't poison later ones.
-                                # Surfaced via traceback so a malformed/unsupported
-                                # NOTIFY doesn't just vanish silently.
-                                print('[EventServer] Discarding unparsable HTTP packet: %r' % (e,))
-                                traceback.print_exc()
-                                connSessions[sock].SetData('')
-                                badMsg = True
-
-                            if badMsg == False:
-                                # Find the observer to notify
+                            connSessions[sock].Append(data)
+                            # Process EVERY complete NOTIFY currently buffered,
+                            # not just the first: a device may coalesce several
+                            # NOTIFYs into one TCP segment, and the trailing ones
+                            # would otherwise be lost when the connection closes.
+                            for recvpkt in self._extract_packets(connSessions[sock]):
                                 sid = recvpkt.Header('SID')
                                 seq = recvpkt.Header('SEQ')
-                                if sid==None or seq==None:
-                                    # Invalid packet
-                                    pass
-                                else:
+                                if sid is not None and seq is not None:
                                     for obs in self.iObservers:
                                         if sid == obs.SubId():
                                             # A misbehaving observer must not kill
@@ -248,13 +251,14 @@ class EventServer(Thread):
                                             except Exception:
                                                 traceback.print_exc()
 
-                                # Send a response to acknowledge
+                                # Acknowledge every NOTIFY
                                 ack = HttpPacket.HttpResponse()
                                 ack.SetResponseLine('1.1', '200 OK')
                                 try:
-                                    bytesSent = sock.send( str(ack).encode('utf-8') )
+                                    sock.send( str(ack).encode('utf-8') )
                                 except OSError:
-                                    toRemove.append(sock)
+                                    if sock not in toRemove:
+                                        toRemove.append(sock)
             finally:
                 self.iLock.release()
 

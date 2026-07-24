@@ -1,4 +1,4 @@
-# SkrobbleDS v0.95.4
+# SkrobbleDS v0.95.5
 
 Last.fm scrobbler for Linn DS and OpenHome-compliant UPnP media players.
 
@@ -236,7 +236,11 @@ The application supports the following environment variables:
 
 ## Changelog
 
-### v0.95.4 (Current)
+### v0.95.5 (Current)
+
+- **Fix (missing tracks on rapid changes)**: the event server processed only the first NOTIFY in each network read, stashing any others as leftover that was re-examined only on the next read — so when a device coalesced several NOTIFYs into one TCP segment (common on fast/gapless track changes), the trailing ones (e.g. the Info `Metadata` event) were lost when the connection closed, leaving a track with a blank title. The server now drains every complete packet from the buffer per read.
+
+### v0.95.4
 
 - **Fix (blank scrobbles)**: a track-count change that fires without metadata — e.g. playback resuming after a mid-track streaming stall, or a state refresh on event resubscribe — left the title/artist blank, and that empty track could be submitted to Last.fm as a garbage scrobble. Scrobbles with no title/artist are now suppressed, both at the point they are emitted and again in the scrobble submission loop.
 

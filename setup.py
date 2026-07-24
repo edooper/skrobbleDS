@@ -16,7 +16,7 @@ with open("README.md") as f:
 
 setup(
     name="SkrobbleDS",
-    version="0.95.4",
+    version="0.95.5",
     description="Last.fm scrobbler for Linn DS UPnP media players",
     long_description=long_description,
     long_description_content_type="text/markdown",
