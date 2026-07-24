@@ -42,6 +42,7 @@ class Player:
         }
         self.duration = 0
         self.meta = {}
+        self.current_uri = ''
         self.subscriptions = []
         self.event_server = None
 
@@ -115,46 +116,57 @@ class Player:
                         self.update_meta_timer.cancel()
                         self.update_meta_timer = None
                     self._update_meta()
-            elif name == 'TrackCount':
-                self.log(f'[DEBUG] {self.name}: Track change event detected')
-                if self.update_meta_timer:
-                    self.update_meta_timer.cancel()
-                if self.stop_scrobble_timer:
-                    self.stop_scrobble_timer.cancel()
-                    self.stop_scrobble_timer = None
+            elif name == 'Uri':
+                # The Uri is the reliable per-track identity. A genuine track
+                # change is a new, different, non-empty Uri. TrackCount is NOT
+                # used: at an album boundary the device fires it twice for the
+                # same track (before the Uri/Metadata arrive), which would
+                # otherwise wipe the first track's freshly-delivered metadata.
+                if value and value != self.current_uri:
+                    self.current_uri = value
+                    self._on_track_change()
 
-                self.current['stopped'].append(time.time())
-                # Only scrobble a real track: a track-count change can fire
-                # without metadata (e.g. resume after a stall, or a state
-                # refresh on resubscribe), leaving title/artist blank
-                if self.current.get('title') and self.current.get('artist'):
-                    self.bus.emit('scrobble', info=copy.deepcopy(self.current))
+    def _on_track_change(self):
+        """Handle a track boundary (a new Uri): scrobble the outgoing track and
+           reset state for the incoming one. Caller must hold self._lock."""
+        self.log(f'[DEBUG] {self.name}: Track change event detected')
+        if self.update_meta_timer:
+            self.update_meta_timer.cancel()
+        if self.stop_scrobble_timer:
+            self.stop_scrobble_timer.cancel()
+            self.stop_scrobble_timer = None
 
-                self.current = {
-                    'playing': [],
-                    'stopped': [],
-                    'duration': 0,
-                    'player': '',
-                    'artist': '',
-                    'album': '',
-                    'tracknum': '',
-                    'title': ''
-                }
-                # Prevent the previous track's metadata from being copied
-                # into this track if its Metadata event hasn't arrived yet
-                self.meta = {'title': '', 'artist': '', 'album': '', 'tracknum': '', 'duration': 0}
-                # Reset the fallback duration too so a stale Duration event
-                # can't leak into the next track if its DIDL omits one
-                self.duration = 0
-                if self.is_playing:
-                    self.current['playing'].append(time.time())
-                else:
-                    self.current['stopped'].append(time.time())
+        self.current['stopped'].append(time.time())
+        # Only scrobble a real track: the outgoing track may have no metadata
+        # yet (blank title/artist), which must never be submitted
+        if self.current.get('title') and self.current.get('artist'):
+            self.bus.emit('scrobble', info=copy.deepcopy(self.current))
 
-                self.update_meta_timer = threading.Timer(Constants.PLAYER_METADATA_UPDATE_DELAY, self._update_meta)
-                self.update_meta_timer.daemon = True
-                self.update_meta_timer.start()
-        
+        self.current = {
+            'playing': [],
+            'stopped': [],
+            'duration': 0,
+            'player': '',
+            'artist': '',
+            'album': '',
+            'tracknum': '',
+            'title': ''
+        }
+        # Prevent the previous track's metadata from being copied into this
+        # track if its Metadata event hasn't arrived yet
+        self.meta = {'title': '', 'artist': '', 'album': '', 'tracknum': '', 'duration': 0}
+        # Reset the fallback duration too so a stale Duration event can't leak
+        # into the next track if its DIDL omits one
+        self.duration = 0
+        if self.is_playing:
+            self.current['playing'].append(time.time())
+        else:
+            self.current['stopped'].append(time.time())
+
+        self.update_meta_timer = threading.Timer(Constants.PLAYER_METADATA_UPDATE_DELAY, self._update_meta)
+        self.update_meta_timer.daemon = True
+        self.update_meta_timer.start()
+
     def _parse_metadata(self, xml_val):
         """Parse DIDL-Lite metadata XML"""
         new_meta = {'title': '', 'artist': '', 'album': '', 'tracknum': '', 'duration': 0}

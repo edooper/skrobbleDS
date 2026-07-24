@@ -1,4 +1,4 @@
-# SkrobbleDS v0.95.6
+# SkrobbleDS v0.95.7
 
 Last.fm scrobbler for Linn DS and OpenHome-compliant UPnP media players.
 
@@ -236,7 +236,11 @@ The application supports the following environment variables:
 
 ## Changelog
 
-### v0.95.6 (Current)
+### v0.95.7 (Current)
+
+- **Fix (missing first track of a new album)**: track changes are now detected from the Info `Uri` (the reliable per-track identity), not `TrackCount`. At an album boundary the device fires `TrackCount` twice for the same track — before its `Uri`/`Metadata` arrive — and the second, spurious one used to wipe the first track's freshly-delivered metadata, leaving it blank (no now-playing, no scrobble). A repeated `Uri` is now a no-op, so the first track's metadata is preserved.
+
+### v0.95.6
 
 - Removed temporary per-event debug logging added while diagnosing the metadata-delivery issue.
 

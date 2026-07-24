@@ -72,6 +72,7 @@ def player(monkeypatch):
     p.stop_scrobble_timer = None
     p.is_playing = True
     p.duration = 200
+    p.current_uri = 'tidal://track?trackId=old'
     # Simulate a previous track that already finished syncing.
     p.meta = {'title': 'Old Song', 'artist': 'Old Artist', 'album': 'Old Album', 'tracknum': '1'}
     p.current = {
@@ -94,15 +95,18 @@ def _wait_for_timer():
     time.sleep(DELAY * 4)
 
 
-def test_trackcount_resets_meta_as_well_as_current(player):
-    player._on_info_event('TrackCount', '2', 1)
+NEW_URI = 'tidal://track?trackId=new'
+
+
+def test_new_uri_resets_meta_as_well_as_current(player):
+    player._on_info_event('Uri', NEW_URI, 1)
     assert player.meta == {'title': '', 'artist': '', 'album': '', 'tracknum': '', 'duration': 0}
     assert player.current['title'] == ''
     assert player.current['artist'] == ''
 
 
 def test_duration_before_late_metadata_does_not_produce_stale_title(player, now_playing_events):
-    player._on_info_event('TrackCount', '2', 1)
+    player._on_info_event('Uri', NEW_URI, 1)
     player._on_info_event('Duration', '111', 2)
     _wait_for_timer()
 
@@ -140,7 +144,7 @@ def test_didl_duration_overrides_stale_duration_event(player, now_playing_events
     # the new track's duration must come from its own DIDL <res>, not the
     # stale self.duration left over from the previous track.
     player.duration = 126   # stale value from the previous (127s) track
-    player._on_info_event('TrackCount', '2', 1)
+    player._on_info_event('Uri', NEW_URI, 1)
     player._on_info_event('Metadata', DIDL_WITH_RES_50S, 2)
 
     assert player.current['title'] == 'Naked Truth, Part 6'
@@ -148,25 +152,49 @@ def test_didl_duration_overrides_stale_duration_event(player, now_playing_events
     assert now_playing_events[-1]['duration'] == 50
 
 
-def test_trackcount_change_with_blank_metadata_emits_no_scrobble(player, scrobbles):
-    # A track-count change can fire without metadata (resume after a stall, or
-    # a state refresh on resubscribe). The outgoing track has no title/artist,
-    # so no (blank) scrobble must be submitted to Last.fm.
+def test_new_uri_with_blank_metadata_emits_no_scrobble(player, scrobbles):
+    # The outgoing track may have no metadata yet (blank title/artist), which
+    # must never be submitted to Last.fm.
     player.current['title'] = ''
     player.current['artist'] = ''
-    player._on_info_event('TrackCount', '2', 1)
+    player._on_info_event('Uri', NEW_URI, 1)
     assert scrobbles == [], 'must not scrobble a track with blank title/artist'
 
 
-def test_trackcount_change_with_real_metadata_emits_scrobble(player, scrobbles):
-    # Sanity check the guard does not suppress a legitimate track change.
-    player._on_info_event('TrackCount', '2', 1)
+def test_new_uri_with_real_metadata_emits_scrobble(player, scrobbles):
+    # Sanity check a legitimate track change scrobbles the outgoing track.
+    player._on_info_event('Uri', NEW_URI, 1)
     assert len(scrobbles) == 1
     assert scrobbles[0]['title'] == 'Old Song'
 
 
+def test_repeated_uri_does_not_reset_metadata(player, scrobbles):
+    # Regression for the missing-first-album-track bug: at an album boundary the
+    # device fires TrackCount twice for the same track, re-sending the SAME Uri.
+    # A repeated Uri must NOT be treated as a track change - otherwise the
+    # first track's freshly-delivered metadata is wiped and it plays out blank.
+    same_uri = player.current_uri
+    player._on_info_event('Uri', same_uri, 1)
+    assert scrobbles == [], 'a repeated Uri must not scrobble/reset'
+    assert player.current['title'] == 'Old Song', 'metadata must be preserved'
+
+
+def test_trackcount_alone_does_not_reset_or_scrobble(player, scrobbles):
+    # TrackCount is no longer the change trigger (it is the unreliable signal).
+    # A bare TrackCount must not reset state or scrobble.
+    player._on_info_event('TrackCount', '99', 1)
+    assert scrobbles == []
+    assert player.current['title'] == 'Old Song'
+
+
+def test_empty_uri_ignored(player, scrobbles):
+    player._on_info_event('Uri', '', 1)
+    assert scrobbles == []
+    assert player.current['title'] == 'Old Song'
+
+
 def test_prompt_metadata_resyncs_immediately_and_skips_duplicate_timer_emit(player, now_playing_events):
-    player._on_info_event('TrackCount', '2', 1)
+    player._on_info_event('Uri', NEW_URI, 1)
     player._on_info_event('Metadata', NEW_TRACK_DIDL, 2)
 
     assert player.current['title'] == 'New Song'
