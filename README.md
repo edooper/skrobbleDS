@@ -1,4 +1,4 @@
-# SkrobbleDS v0.95.5
+# SkrobbleDS v0.95.6
 
 Last.fm scrobbler for Linn DS and OpenHome-compliant UPnP media players.
 
@@ -236,7 +236,11 @@ The application supports the following environment variables:
 
 ## Changelog
 
-### v0.95.5 (Current)
+### v0.95.6 (Current)
+
+- Removed temporary per-event debug logging added while diagnosing the metadata-delivery issue.
+
+### v0.95.5
 
 - **Fix (missing tracks on rapid changes)**: the event server processed only the first NOTIFY in each network read, stashing any others as leftover that was re-examined only on the next read — so when a device coalesced several NOTIFYs into one TCP segment (common on fast/gapless track changes), the trailing ones (e.g. the Info `Metadata` event) were lost when the connection closed, leaving a track with a blank title. The server now drains every complete packet from the buffer per read.
 

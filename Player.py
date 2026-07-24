@@ -103,7 +103,6 @@ class Player:
     def _on_info_event(self, name, value, seq):
         """Callback on Info service event"""
         with self._lock:
-            self.log(f'[DEBUG] {self.name}: Info event {name} (seq {seq}, {len(value)} bytes)')
             if name == 'Duration':
                 self.duration = int(value)
             elif name == 'Metadata':
