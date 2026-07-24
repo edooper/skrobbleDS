@@ -83,7 +83,7 @@ def _wait_for_timer():
 
 def test_trackcount_resets_meta_as_well_as_current(player):
     player._on_info_event('TrackCount', '2', 1)
-    assert player.meta == {'title': '', 'artist': '', 'album': '', 'tracknum': ''}
+    assert player.meta == {'title': '', 'artist': '', 'album': '', 'tracknum': '', 'duration': 0}
     assert player.current['title'] == ''
     assert player.current['artist'] == ''
 
@@ -106,6 +106,33 @@ def test_duration_before_late_metadata_does_not_produce_stale_title(player, now_
     assert player.current['duration'] == 111, 'duration must not revert once correctly set'
     assert now_playing_events[-1]['title'] == 'New Song'
     assert now_playing_events[-1]['duration'] == 111
+
+
+DIDL_WITH_RES_50S = (
+    '<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"'
+    ' xmlns:dc="http://purl.org/dc/elements/1.1/"'
+    ' xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">'
+    '<item>'
+    '<dc:title>Naked Truth, Part 6</dc:title>'
+    '<upnp:artist role="Performer">Avishai Cohen</upnp:artist>'
+    '<res duration="0:00:50.000">tidal://track</res>'
+    '</item>'
+    '</DIDL-Lite>'
+)
+
+
+def test_didl_duration_overrides_stale_duration_event(player, now_playing_events):
+    # Regression for the "Naked Truth, Part 6" no-scrobble bug: on a fast
+    # gapless track change the separate Info 'Duration' event lags a track, so
+    # the new track's duration must come from its own DIDL <res>, not the
+    # stale self.duration left over from the previous track.
+    player.duration = 126   # stale value from the previous (127s) track
+    player._on_info_event('TrackCount', '2', 1)
+    player._on_info_event('Metadata', DIDL_WITH_RES_50S, 2)
+
+    assert player.current['title'] == 'Naked Truth, Part 6'
+    assert player.current['duration'] == 50, 'must use the DIDL res duration, not the stale 126s'
+    assert now_playing_events[-1]['duration'] == 50
 
 
 def test_prompt_metadata_resyncs_immediately_and_skips_duplicate_timer_emit(player, now_playing_events):

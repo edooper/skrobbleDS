@@ -138,7 +138,10 @@ class Player:
                 }
                 # Prevent the previous track's metadata from being copied
                 # into this track if its Metadata event hasn't arrived yet
-                self.meta = {'title': '', 'artist': '', 'album': '', 'tracknum': ''}
+                self.meta = {'title': '', 'artist': '', 'album': '', 'tracknum': '', 'duration': 0}
+                # Reset the fallback duration too so a stale Duration event
+                # can't leak into the next track if its DIDL omits one
+                self.duration = 0
                 if self.is_playing:
                     self.current['playing'].append(time.time())
                 else:
@@ -150,7 +153,7 @@ class Player:
         
     def _parse_metadata(self, xml_val):
         """Parse DIDL-Lite metadata XML"""
-        new_meta = {'title': '', 'artist': '', 'album': '', 'tracknum': ''}
+        new_meta = {'title': '', 'artist': '', 'album': '', 'tracknum': '', 'duration': 0}
         if not xml_val:
             self.meta = new_meta
             return
@@ -183,10 +186,35 @@ class Player:
                 track_elem = item.find('upnp:originalTrackNumber', ns)
                 if track_elem is not None:
                     new_meta['tracknum'] = track_elem.text or ''
+
+                # Prefer the duration carried in the DIDL <res> element: it is
+                # atomic with the title/artist, unlike the separate Info
+                # 'Duration' event which can lag by a track on fast (gapless)
+                # track changes and cause the wrong scrobble decision.
+                for res in item.findall('didl:res', ns):
+                    dur = self._parse_didl_duration(res.attrib.get('duration'))
+                    if dur:
+                        new_meta['duration'] = dur
+                        break
         except ET.ParseError as e:
             self.log(f'[DEBUG] {self.name}: Failed to parse metadata XML: {e}')
 
         self.meta = new_meta
+
+    @staticmethod
+    def _parse_didl_duration(value):
+        """Convert a DIDL-Lite res duration ('H:MM:SS.mmm') to whole seconds.
+           Returns 0 if absent or unparseable."""
+        if not value:
+            return 0
+        try:
+            parts = value.split(':')
+            if len(parts) != 3:
+                return 0
+            hours, minutes, seconds = parts
+            return int(hours) * 3600 + int(minutes) * 60 + int(float(seconds))
+        except (ValueError, AttributeError):
+            return 0
 
     def _on_playlist_event(self, name, value, seq):
         """Callback on Playlist service event"""
@@ -244,13 +272,16 @@ class Player:
         """Update metadata and play status - triggered by TrackCount event"""
         with self._lock:
             if 'title' in self.meta:
+                # Prefer the DIDL duration (atomic with the title); fall back to
+                # the separate Info 'Duration' event only if the DIDL omitted it
+                duration = self.meta.get('duration') or self.duration
                 self.current['player'] = self.name
-                self.current['duration'] = self.duration
+                self.current['duration'] = duration
                 self.current['title'] = self.meta['title']
                 self.current['artist'] = self.meta['artist']
                 self.current['album'] = self.meta['album']
                 self.current['tracknum'] = self.meta['tracknum']
-                self.log(f"[DEBUG] {self.name}: Track metadata received -> {self.meta['artist']} - {self.meta['title']} ({self.duration}s)")
+                self.log(f"[DEBUG] {self.name}: Track metadata received -> {self.meta['artist']} - {self.meta['title']} ({duration}s)")
                 if self.is_playing:
                     if self.play_status_timer:
                         self.play_status_timer.cancel()
