@@ -1,4 +1,4 @@
-# SkrobbleDS v0.95.3
+# SkrobbleDS v0.95.4
 
 Last.fm scrobbler for Linn DS and OpenHome-compliant UPnP media players.
 
@@ -236,7 +236,11 @@ The application supports the following environment variables:
 
 ## Changelog
 
-### v0.95.3 (Current)
+### v0.95.4 (Current)
+
+- **Fix (blank scrobbles)**: a track-count change that fires without metadata — e.g. playback resuming after a mid-track streaming stall, or a state refresh on event resubscribe — left the title/artist blank, and that empty track could be submitted to Last.fm as a garbage scrobble. Scrobbles with no title/artist are now suppressed, both at the point they are emitted and again in the scrobble submission loop.
+
+### v0.95.3
 
 - **Fix (wrong scrobble decision on gapless albums)**: track duration is now read from the DIDL-Lite `<res duration=…>` attribute, atomic with the title/artist, instead of the separate Info `Duration` event. On fast (gapless) track changes the `Duration` event lagged by a track, so a track could be scored against the previous track's duration and wrongly skipped (e.g. a 50s track judged against 126s → "NO scrobble"). The fallback `Duration` event is still used when the DIDL omits a duration.
 

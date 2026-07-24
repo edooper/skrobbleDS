@@ -47,6 +47,19 @@ def now_playing_events():
 
 
 @pytest.fixture
+def scrobbles():
+    collected = []
+
+    def collector(info):
+        collected.append(info)
+
+    bus = EventBus.EventBus()
+    bus.subscribe('scrobble', collector)
+    yield collected
+    bus.unsubscribe('scrobble', collector)
+
+
+@pytest.fixture
 def player(monkeypatch):
     monkeypatch.setattr(Constants, 'PLAYER_METADATA_UPDATE_DELAY', DELAY, raising=False)
     p = Player.Player.__new__(Player.Player)
@@ -133,6 +146,23 @@ def test_didl_duration_overrides_stale_duration_event(player, now_playing_events
     assert player.current['title'] == 'Naked Truth, Part 6'
     assert player.current['duration'] == 50, 'must use the DIDL res duration, not the stale 126s'
     assert now_playing_events[-1]['duration'] == 50
+
+
+def test_trackcount_change_with_blank_metadata_emits_no_scrobble(player, scrobbles):
+    # A track-count change can fire without metadata (resume after a stall, or
+    # a state refresh on resubscribe). The outgoing track has no title/artist,
+    # so no (blank) scrobble must be submitted to Last.fm.
+    player.current['title'] = ''
+    player.current['artist'] = ''
+    player._on_info_event('TrackCount', '2', 1)
+    assert scrobbles == [], 'must not scrobble a track with blank title/artist'
+
+
+def test_trackcount_change_with_real_metadata_emits_scrobble(player, scrobbles):
+    # Sanity check the guard does not suppress a legitimate track change.
+    player._on_info_event('TrackCount', '2', 1)
+    assert len(scrobbles) == 1
+    assert scrobbles[0]['title'] == 'Old Song'
 
 
 def test_prompt_metadata_resyncs_immediately_and_skips_duplicate_timer_emit(player, now_playing_events):

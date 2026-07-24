@@ -85,6 +85,12 @@ class Scrobbler:
                 duration = info.get('duration', 0)
                 info_msg = f"{info['title']} by {info['artist']} from {info['album']} ({duration}s)"
 
+                # Never submit a scrobble without a track/artist - Last.fm
+                # would store a blank entry. Guards against a track-count
+                # change that fired with no metadata (blank title/artist).
+                if not (info.get('title') and info.get('artist')):
+                    continue
+
                 if not info.get('playing'):
                     continue
 

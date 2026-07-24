@@ -124,7 +124,11 @@ class Player:
                     self.stop_scrobble_timer = None
 
                 self.current['stopped'].append(time.time())
-                self.bus.emit('scrobble', info=copy.deepcopy(self.current))
+                # Only scrobble a real track: a track-count change can fire
+                # without metadata (e.g. resume after a stall, or a state
+                # refresh on resubscribe), leaving title/artist blank
+                if self.current.get('title') and self.current.get('artist'):
+                    self.bus.emit('scrobble', info=copy.deepcopy(self.current))
 
                 self.current = {
                     'playing': [],
