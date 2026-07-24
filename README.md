@@ -1,4 +1,4 @@
-# SkrobbleDS v0.95
+# SkrobbleDS v0.95.0
 
 Last.fm scrobbler for Linn DS and OpenHome-compliant UPnP media players.
 
@@ -236,7 +236,7 @@ The application supports the following environment variables:
 
 ## Changelog
 
-### v0.95 (Current)
+### v0.95.0 (Current)
 
 - **Security**:
   - All mutating web routes now require **POST requests with CSRF tokens**
