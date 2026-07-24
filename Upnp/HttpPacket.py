@@ -67,35 +67,43 @@ class HttpPacket:
         return pktStr
 
     def Set(self, aData):
-        """Parse a data chunk to retrieve the headers and body of an HTTP packet."""
-        # Decode bytes to string if needed (Python 3 compatibility)
-        if isinstance(aData, bytes):
-            aData = aData.decode('utf-8', errors='replace')
+        """Parse a data chunk to retrieve the headers and body of an HTTP packet.
+
+           Framing (header/body split, Content-Length, chunk sizes) is done on
+           the raw BYTES. Content-Length and chunk sizes are byte counts, so
+           decoding to a string first and measuring len() would undercount any
+           multi-byte UTF-8 character in the body - making a fully-received body
+           look perpetually incomplete. The body is decoded to str only once the
+           whole packet has been framed. The caller's type is preserved for the
+           returned leftover (str in -> str out, bytes in -> bytes out)."""
+        was_str = isinstance(aData, str)
+        raw = aData.encode('utf-8') if was_str else aData
 
         self.iHeaders = {}
         self.iBody    = ''
+
+        def _leftover(excess_bytes):
+            if not excess_bytes:
+                return None
+            return excess_bytes.decode('utf-8', errors='replace') if was_str else excess_bytes
 
         try:
             # split the data packet into a headers section and everything
             # after it - only on the FIRST blank line, since a chunked body
             # can legitimately contain further '\r\n\r\n' sequences (e.g. its
             # terminating chunk) that must stay part of the body
-            idx = aData.find('\r\n\r\n')
+            idx = raw.find(b'\r\n\r\n')
             if idx == -1:
                 raise IncompletePacket(aData)
-            headers = aData[:idx]
-            rest = aData[idx + 4:]
-            # split the headers section into a list of individual headers (the '\r\n' gets removed from each)
-            headerList = re.split( '\r\n', headers )
-
-            for header in headerList:
-                m = re.match( r"""(?P<name>[^:]*)    # match any characters upto the first ':'
-                                :\s*                 # match the ':' plus any number of following spaces
-                                (?P<value>.*$)""",   # match all characters up to the end of the string
-                                header,
-                                re.VERBOSE )
+            headers = raw[:idx]
+            rest = raw[idx + 4:]
+            # header names/values are ASCII; latin-1 is a safe 1:1 byte decode
+            for header in headers.split(b'\r\n'):
+                m = re.match( rb'(?P<name>[^:]*):\s*(?P<value>.*)$', header )
                 if m:
-                    self.iHeaders[ m.group('name').lower() ] = m.group('value')
+                    name  = m.group('name').decode('latin-1').lower()
+                    value = m.group('value').decode('latin-1')
+                    self.iHeaders[ name ] = value
 
         except IncompletePacket:
             raise
@@ -109,37 +117,38 @@ class HttpPacket:
             if decoded is None:
                 # Not all chunks have arrived yet
                 raise IncompletePacket(aData)
-            self.iBody = decoded
-            if excess:
-                return excess
-            return
+            self.iBody = decoded.decode('utf-8', errors='replace')
+            return _leftover(excess)
 
-        self.iBody = rest
         contentLen = self.Header('Content-Length')
         if contentLen:
-            if int(contentLen) > len(self.iBody):
+            cl = int(contentLen)
+            if cl > len(rest):
                 # Packet is incomplete
                 raise IncompletePacket(aData)
-
-            elif int(contentLen) < len(self.iBody):
+            elif cl < len(rest):
                 # The data supplied contains excess data - return this
-                xs = self.iBody[int(contentLen):]
-                self.iBody = self.iBody[0:int(contentLen)]
-                return xs
+                self.iBody = rest[:cl].decode('utf-8', errors='replace')
+                return _leftover(rest[cl:])
+            else:
+                self.iBody = rest.decode('utf-8', errors='replace')
+        else:
+            self.iBody = rest.decode('utf-8', errors='replace')
 
     @staticmethod
     def _decode_chunked(aRaw):
-        """Decode a chunked-transfer-encoded body. Returns (body, excess) once
-            all chunks (including the terminating zero-length chunk) have been
-            received, or (None, None) if more data is still needed."""
-        body = ''
+        """Decode a chunked-transfer-encoded body (bytes). Returns
+            (body_bytes, excess_bytes) once all chunks (including the
+            terminating zero-length chunk) have been received, or (None, None)
+            if more data is still needed."""
+        body = b''
         pos = 0
         while True:
-            lineEnd = aRaw.find('\r\n', pos)
+            lineEnd = aRaw.find(b'\r\n', pos)
             if lineEnd == -1:
                 return None, None
 
-            sizeStr = aRaw[pos:lineEnd].split(';', 1)[0].strip()
+            sizeStr = aRaw[pos:lineEnd].split(b';', 1)[0].strip()
             try:
                 size = int(sizeStr, 16)
             except ValueError:
@@ -149,7 +158,7 @@ class HttpPacket:
             if size == 0:
                 # Terminating chunk - the rest is optional trailers, ended by
                 # a blank line; we don't expect trailers from UPnP eventing
-                trailerEnd = aRaw.find('\r\n', chunkStart)
+                trailerEnd = aRaw.find(b'\r\n', chunkStart)
                 if trailerEnd == -1:
                     return None, None
                 return body, aRaw[trailerEnd + 2:] or None
@@ -188,10 +197,10 @@ class HttpRequest(HttpPacket):
 
     def Set(self, aData):
         """Parse a data chunk to retrieve the headers and body of an HTTP packet."""
-        # Decode bytes to string if needed (Python 3 compatibility)
-        if isinstance(aData, bytes):
-            aData = aData.decode('utf-8', errors='replace')
-        m = re.match( r'^(\S*) (\S*) HTTP/(\d.\d)', aData )
+        # Read the request line without decoding the whole (possibly multi-byte)
+        # body - latin-1 is a safe 1:1 byte->char mapping for the ASCII line.
+        head = aData.decode('latin-1', errors='replace') if isinstance(aData, bytes) else aData
+        m = re.match( r'^(\S*) (\S*) HTTP/(\d.\d)', head )
         try:
             self.iRequestMethod = m.group(1)
             self.iRequestUri    = m.group(2)
@@ -200,6 +209,7 @@ class HttpRequest(HttpPacket):
             raise InvalidRequest(aData)
         except AttributeError as e:
             raise InvalidRequest(aData)
+        # Pass the original data (bytes preserved) through for byte-accurate framing
         return HttpPacket.Set(self, aData)
 
 
@@ -224,10 +234,10 @@ class HttpResponse(HttpPacket):
 
     def Set(self, aData):
         """Parse a data chunk to retrieve the headers and body of an HTTP packet."""
-        # Decode bytes to string if needed (Python 3 compatibility)
-        if isinstance(aData, bytes):
-            aData = aData.decode('utf-8', errors='replace')
-        m = re.match( r'HTTP/(\d.\d)\s*([^\r\n]*)', aData )
+        # Read the status line without decoding the whole (possibly multi-byte)
+        # body - latin-1 is a safe 1:1 byte->char mapping for the ASCII line.
+        head = aData.decode('latin-1', errors='replace') if isinstance(aData, bytes) else aData
+        m = re.match( r'HTTP/(\d.\d)\s*([^\r\n]*)', head )
         try:
             self.iVersion    = m.group(1);
             self.iStatuscode = m.group(2)
@@ -235,4 +245,5 @@ class HttpResponse(HttpPacket):
             raise InvalidResponse(aData)
         except AttributeError as e:
             raise InvalidResponse(aData)
+        # Pass the original data (bytes preserved) through for byte-accurate framing
         return HttpPacket.Set(self, aData)

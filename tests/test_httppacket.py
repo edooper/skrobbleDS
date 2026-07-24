@@ -113,6 +113,47 @@ class TestHttpRequest:
         assert pkt.Body() == 'hello'
         assert extra == 'NEXT'
 
+    def test_multibyte_body_content_length_is_byte_count(self):
+        # Content-Length is a BYTE count. A body with multi-byte UTF-8
+        # characters (e.g. the copyright/sound-recording marks that appear in
+        # Tidal DIDL metadata) must not be treated as incomplete just because
+        # its character count is smaller than its byte count.
+        body = '<title>℗ café</title>'   # ℗ = 3 bytes, é = 2 bytes
+        body_bytes = body.encode('utf-8')
+        raw = (
+            b'NOTIFY /eventURL HTTP/1.1\r\n'
+            b'SID: uuid:abc\r\n'
+            b'SEQ: 0\r\n'
+            b'CONTENT-LENGTH: ' + str(len(body_bytes)).encode() + b'\r\n'
+            b'\r\n' + body_bytes
+        )
+        pkt = HttpPacket.HttpRequest()
+        extra = pkt.Set(raw)
+        assert pkt.Body() == body, 'multi-byte body must be fully parsed, not truncated'
+        assert pkt.Header('SID') == 'uuid:abc'
+        assert extra is None
+
+    def test_multibyte_body_split_across_segments(self):
+        # A multi-byte character split across two recv() boundaries must not be
+        # corrupted: accumulate bytes and decode once the packet is complete.
+        from Upnp import EventServer
+        body_bytes = '℗ 2022 ECM'.encode('utf-8')
+        raw = (
+            b'NOTIFY /eventURL HTTP/1.1\r\nSID: uuid:abc\r\nSEQ: 0\r\n'
+            b'CONTENT-LENGTH: ' + str(len(body_bytes)).encode() + b'\r\n\r\n' + body_bytes
+        )
+        # Split right through the middle of the leading 3-byte ℗ sequence
+        first, second = raw[:raw.index(body_bytes) + 1], raw[raw.index(body_bytes) + 1:]
+        sess = EventServer.EventSession(None, ('192.168.1.20', 1234))
+        sess.Append(first)
+        pkt = HttpPacket.HttpRequest()
+        with pytest.raises(HttpPacket.IncompletePacket):
+            pkt.Set(sess.Data())
+        sess.Append(second)
+        pkt = HttpPacket.HttpRequest()
+        pkt.Set(sess.Data())
+        assert pkt.Body() == '℗ 2022 ECM'
+
 
 class TestHttpResponse:
     def test_parse_status_line(self):

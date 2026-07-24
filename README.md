@@ -1,4 +1,4 @@
-# SkrobbleDS v0.95.1
+# SkrobbleDS v0.95.2
 
 Last.fm scrobbler for Linn DS and OpenHome-compliant UPnP media players.
 
@@ -236,9 +236,14 @@ The application supports the following environment variables:
 
 ## Changelog
 
-### v0.95.1 (Current)
+### v0.95.2 (Current)
 
-- **Fix**: UPnP event HTTP parser now handles `Transfer-Encoding: chunked` NOTIFY bodies, which the Info service can use for the larger DIDL-Lite `Metadata` payload. Previously such events were silently dropped, so track titles/artists could go missing (most visible with streaming sources such as Tidal).
+- **Fix (missing track titles)**: the UPnP event HTTP parser now frames packets by **byte** length. `Content-Length` is a byte count, but the body was measured in characters after UTF-8 decoding — so any `Info` `Metadata` event whose DIDL-Lite payload contained a multi-byte character (e.g. the `℗`/`©` marks common in Tidal metadata) was treated as perpetually incomplete, silently dropped, and eventually caused the device to drop the Info subscription (recurring "Bad response renewing" every ~22 min). Track titles/artists now come through reliably for streaming sources such as Tidal.
+- **Fix**: a multi-byte character split across two TCP segments is no longer corrupted — inbound event data is accumulated as bytes and decoded once the full packet has been assembled.
+
+### v0.95.1
+
+- **Fix**: UPnP event HTTP parser now handles `Transfer-Encoding: chunked` NOTIFY bodies.
 - **Fix**: metadata is no longer left stale across a fast track change — `Metadata`/`Duration` events arriving out of order can no longer attach the previous track's title/artist to a new track.
 - **Diagnostics**: unparsable/malformed UPnP event packets are now logged instead of being swallowed silently.
 

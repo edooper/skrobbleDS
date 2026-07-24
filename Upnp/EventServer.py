@@ -25,7 +25,11 @@ class EventSession:
     def __init__(self, aSocket, aAddr):
         self.iSocket = aSocket
         self.iAddr = aAddr
-        self.iData = ''
+        # Accumulate raw BYTES, not a decoded string: a multi-byte UTF-8
+        # character split across two recv() boundaries would be corrupted if
+        # each segment were decoded on its own, and HTTP framing (Content-
+        # Length, chunk sizes) is defined in bytes.
+        self.iData = b''
 
     def Socket(self):
         return self.iSocket
@@ -40,12 +44,12 @@ class EventSession:
         if aData:
             self.iData = aData
         else:
-            self.iData = ''
+            self.iData = b''
 
     def Append(self, aData):
-        # Decode bytes to string if needed (Python 3 compatibility)
-        if isinstance(aData, bytes):
-            aData = aData.decode('utf-8', errors='replace')
+        # Encode to bytes if needed (Python 3 compatibility)
+        if isinstance(aData, str):
+            aData = aData.encode('utf-8')
         self.iData += aData
 
 
@@ -183,7 +187,6 @@ class EventServer(Thread):
             if listenSock in iret:
                 # A device is requesting a connection
                 (sock, addr) = listenSock.accept()
-                print('[EvtDbg] new connection from %s' % (addr,), flush=True)
                 connSocks.append(sock)
                 connSessions[sock] = EventSession(sock, addr)
 
@@ -232,31 +235,18 @@ class EventServer(Thread):
                                 # Find the observer to notify
                                 sid = recvpkt.Header('SID')
                                 seq = recvpkt.Header('SEQ')
-                                method = recvpkt.Request()[0]
-                                print('[EvtDbg] pkt method=%s sid=%s seq=%s TE=%s CL=%s bodylen=%d observers=%r'
-                                      % (method, sid, seq,
-                                         recvpkt.Header('Transfer-Encoding'),
-                                         recvpkt.Header('Content-Length'),
-                                         len(recvpkt.Body()),
-                                         [o.SubId() for o in self.iObservers]),
-                                      flush=True)
                                 if sid==None or seq==None:
                                     # Invalid packet
                                     pass
                                 else:
-                                    matched = False
                                     for obs in self.iObservers:
                                         if sid == obs.SubId():
-                                            matched = True
                                             # A misbehaving observer must not kill
                                             # the server thread
                                             try:
                                                 obs.Notify( seq, recvpkt.Body() )
                                             except Exception:
                                                 traceback.print_exc()
-                                    if not matched:
-                                        print('[EvtDbg] NO observer matched sid=%s body[:200]=%r'
-                                              % (sid, recvpkt.Body()[:200]), flush=True)
 
                                 # Send a response to acknowledge
                                 ack = HttpPacket.HttpResponse()
