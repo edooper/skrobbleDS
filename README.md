@@ -1,4 +1,4 @@
-# SkrobbleDS v0.95.0
+# SkrobbleDS v0.95.1
 
 Last.fm scrobbler for Linn DS and OpenHome-compliant UPnP media players.
 
@@ -236,7 +236,13 @@ The application supports the following environment variables:
 
 ## Changelog
 
-### v0.95.0 (Current)
+### v0.95.1 (Current)
+
+- **Fix**: UPnP event HTTP parser now handles `Transfer-Encoding: chunked` NOTIFY bodies, which the Info service can use for the larger DIDL-Lite `Metadata` payload. Previously such events were silently dropped, so track titles/artists could go missing (most visible with streaming sources such as Tidal).
+- **Fix**: metadata is no longer left stale across a fast track change — `Metadata`/`Duration` events arriving out of order can no longer attach the previous track's title/artist to a new track.
+- **Diagnostics**: unparsable/malformed UPnP event packets are now logged instead of being swallowed silently.
+
+### v0.95.0
 
 - **Security**:
   - All mutating web routes now require **POST requests with CSRF tokens**
