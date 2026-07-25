@@ -1,4 +1,4 @@
-# SkrobbleDS v0.95.7
+# SkrobbleDS v1.0.0
 
 Last.fm scrobbler for Linn DS and OpenHome-compliant UPnP media players.
 
@@ -236,7 +236,23 @@ The application supports the following environment variables:
 
 ## Changelog
 
-### v0.95.7 (Current)
+### v1.0.0 (Current)
+
+First stable release. No change to what the application does — this is the
+0.95.7 feature set with the codebase reviewed end to end (see
+[`docs/architecture-review.md`](docs/architecture-review.md)) and the resulting
+fixes and simplifications applied.
+
+- **Fix (Last.fm account re-authorisation)**: re-authorising an existing account was a silent no-op on two counts — the web UI skipped the update when the account already existed, and a player's session key was a copy taken when the player was linked, so refreshing the account left linked players on the stale key. A rotated or revoked key could not be repaired from the UI at all. The key is now always resolved through the account, making a stale copy unrepresentable.
+- **Fix (lost log lines at shutdown)**: the logger stopped on a flag tested at the top of its loop, discarding everything still queued — including the final scrobble results, since the logger is shut down last.
+- **Fix (silent end to all scrobbling)**: neither scrobbler worker loop guarded its body, so an unhandled exception killed the daemon thread while the process kept running and `/health` kept reporting healthy. Both loops now log and continue.
+- **Fix (retry cache durability)**: startup drained the entire failed-scrobble cache into an in-memory queue, defeating the cache's purpose — an in-memory backlog dies with the process. Entries now leave the database only as each is submitted.
+- **Fix (device discovery robustness)**: the per-service SCPD description files are no longer fetched. Nothing read them, and the fetch put an HTTP round-trip per service inside a single try/except, so one slow or failed service description made the whole device undiscoverable.
+- **Fix**: an empty `<deviceList/>` is no longer conflated with an absent one (also a Python 3.12+ deprecation), and the SSDP notify path no longer builds a regex out of a device-supplied header.
+- **Change (failure reporting)**: the web UI's failure banner now selects lines by **log level** rather than by substring-matching message text against a hand-maintained list of prefixes, where rewording any message silently emptied the banner. Submission failures, worker errors and subscription failures are all reported at error level. Logging is now built on the standard library's `logging`.
+- **Internal**: `Settings` collapsed to two mappings; web UI dependencies passed once rather than twice; a shared bounded port-binding helper (one previous loop was unbounded); database connections now closed rather than left to the garbage collector; ~150 lines of unused UPnP surface removed. Test coverage grew from 71 to 99 tests.
+
+### v0.95.7
 
 - **Fix (missing first track of a new album)**: track changes are now detected from the Info `Uri` (the reliable per-track identity), not `TrackCount`. At an album boundary the device fires `TrackCount` twice for the same track — before its `Uri`/`Metadata` arrive — and the second, spurious one used to wipe the first track's freshly-delivered metadata, leaving it blank (no now-playing, no scrobble). A repeated `Uri` is now a no-op, so the first track's metadata is preserved.
 
