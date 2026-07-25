@@ -4,9 +4,7 @@ from threading import Lock
 from threading import Event
 import socket
 import select
-import re
 import os
-import struct
 from . import HttpPacket
 from . import NetUtil
 
@@ -37,7 +35,6 @@ class SsdpServer(Thread):
         self.iStarted   = Event()
         self.iStopped   = Event()
         self.iStopped.set()
-        self.iDumpPackets = False
         if not self.iIfAddr:
             self.iIfAddr = NetUtil.get_local_ip()
 
@@ -97,16 +94,8 @@ class SsdpServer(Thread):
         # create the stop socket - this listens on the loopback interface for a message to quit the server
         stopSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
 
-        # Try to bind to the port - if it fails, increment the port and try again
-        port = 6789
-        portAssigned = 0
-        while not portAssigned:
-            try:
-                stopSock.bind( ('127.0.0.1', port) )
-                portAssigned = 1
-            except socket.error as e:
-                port += 1
-        self.iStopPort = port
+        self.iStopPort = NetUtil.bind_in_range(stopSock, '127.0.0.1', 6789,
+                                               what='SSDP stop socket')
 
         self.iStopped.clear()
         self.iStarted.set()
@@ -126,10 +115,6 @@ class SsdpServer(Thread):
                     for obs in self.iObservers:
                         obs.SsdpReceived(recvpkt)
 
-                    if self.iDumpPackets:
-                        print(recvpkt)
-                        print()
-
                 except Exception as e:
                     # ignore invalid requests
                     pass
@@ -142,6 +127,3 @@ class SsdpServer(Thread):
         sock.close()
         stopSock.close()
         self.iStopped.set()
-
-    def DumpPackets(self, aDump):
-        self.iDumpPackets = aDump

@@ -23,7 +23,6 @@ class EventSub(EventServer.EventObserver):
         self.iRequestTimeout = 1800
         self.iActualTimeout = 0
         self.iTimer = None
-        self.iTimedOut = False
         # Guards iSubId/iService/iTimer, which are touched from the caller's
         # thread (Subscribe/Unsubscribe) and from renewal Timer threads
         self.iLock = threading.RLock()
@@ -36,15 +35,6 @@ class EventSub(EventServer.EventObserver):
         """Return the subscription ID (SID) of the observer. The subject in the observer pattern will use
             this to determine which observer gets notified."""
         return self.iSubId
-
-    def SetRequestTimeout(self, aTimeout):
-        self.iRequestTimeout = aTimeout
-
-    def RequestTimeout(self):
-        return self.iRequestTimeout
-
-    def ActualTimeout(self):
-        return self.iActualTimeout
 
     def Notify(self, aSeq, aXmlBody):
         """Called when an event happens."""
@@ -63,7 +53,7 @@ class EventSub(EventServer.EventObserver):
         try:
             body = etree.fromstring( aXmlBody )
         except Exception as e:
-            self.log('[DEBUG] Failed to parse event body for SID %s: %s' % (self.iSubId, e))
+            self.log.debug('Failed to parse event body for SID %s: %s' % (self.iSubId, e))
             return
 
         properties = body.iter( '{urn:schemas-upnp-org:event-1-0}property' )
@@ -116,11 +106,11 @@ class EventSub(EventServer.EventObserver):
     def Subscribe(self, aService):
         """UPnP EVENTING PHASE - Subscribe to this services events.
             Returns True on success."""
-        self.log( '%s subscribing to %s' %
+        self.log.info( '%s subscribing to %s' %
             (aService.iParentDevice.FriendlyName(), aService.iType) )
-        self.log( '[DEBUG] Callback URL: %s' % self.iEventServer.EventUrl() )
+        self.log.debug('Callback URL: %s' % self.iEventServer.EventUrl() )
         if aService.EventSubUrl() == None:
-            self.log( 'FAILED: %s No event subscription URL for %s' %
+            self.log.error( 'FAILED: %s No event subscription URL for %s' %
                 (aService.iParentDevice.FriendlyName(), aService.iType) )
             return False
 
@@ -134,13 +124,13 @@ class EventSub(EventServer.EventObserver):
                 try:
                     resp = self._http_request('SUBSCRIBE', headers, aTimeout=2)
                 except Exception as e:
-                    self.log( 'FAILED: %s subscription error: %s' %
+                    self.log.error( 'FAILED: %s subscription error: %s' %
                         (aService.iParentDevice.FriendlyName(), str(e)) )
                     self.iService = None
                     return False
 
                 if resp.status != 200:
-                    self.log( 'FAILED: %s subscription failed with status %d' %
+                    self.log.error( 'FAILED: %s subscription failed with status %d' %
                         (aService.iParentDevice.FriendlyName(), resp.status) )
                     self.iService = None
                     self.iSubId   = None
@@ -148,14 +138,14 @@ class EventSub(EventServer.EventObserver):
 
                 sid = resp.getheader('SID')
                 if sid == None:
-                    self.log( 'FAILED: %s subscription response carried no SID' %
+                    self.log.error( 'FAILED: %s subscription response carried no SID' %
                         aService.iParentDevice.FriendlyName() )
                     self.iService = None
                     return False
 
                 self.iSubId = sid
                 self.iActualTimeout = self._parse_timeout_header(resp)
-                self.log( 'SUCCESS: %s subscribed to %s (SID: %s, timeout: %ds)' %
+                self.log.info( 'SUCCESS: %s subscribed to %s (SID: %s, timeout: %ds)' %
                     (aService.iParentDevice.FriendlyName(), aService.iType,
                      self.iSubId[:16] + '...', self.iActualTimeout) )
 
@@ -193,7 +183,7 @@ class EventSub(EventServer.EventObserver):
                     else:
                         # Renewal rejected (e.g. device rebooted and forgot the
                         # SID) - resubscribe from scratch below
-                        self.log( 'FAILED: [2] %s Bad response renewing event subscription for %s' %
+                        self.log.error( 'FAILED: [2] %s Bad response renewing event subscription for %s' %
                             (self.iService.iParentDevice.FriendlyName(), self.iService.iType) )
                         resubscribeService = self.iService
             finally:
@@ -212,7 +202,7 @@ class EventSub(EventServer.EventObserver):
         with self.iLock:
             if not self.iService:
                 return
-            self.log( '%s unsubscribing from %s' %
+            self.log.info( '%s unsubscribing from %s' %
                 (self.iService.iParentDevice.FriendlyName(), self.iService.iType) )
 
             headers = { 'SID': self.iSubId }
@@ -249,16 +239,3 @@ class EventSub(EventServer.EventObserver):
         finally:
             conn.close()
 
-    def Timeout(self):
-        self.iTimedOut = True
-
-    def Clear(self):
-        """If the UPnP device has gone offline while the control point is subscribed, calling
-            this function will reset the EventSub object for reuse."""
-        with self.iLock:
-            self.iSubId   = None
-            self.iService = None
-            self.iEventServer.RemoveObserver(self)
-            if self.iTimer != None:
-                self.iTimer.cancel()
-            self.iTimer = None

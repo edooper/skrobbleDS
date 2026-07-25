@@ -20,13 +20,8 @@ PLAYER_STOP_SCROBBLE_DELAY = 10   # Delay after Stopped before scrobbling the la
 DEV_TYPE_SOURCE = 'urn:linn-co-uk:device:Source:1'
 
 # Activity Log (in-memory ring buffer surfaced in the web UI)
+# Failures are identified by log level (ERROR and above), not by matching
+# message text - so rewording a message can never empty the failure banner.
 LOG_RING_SIZE = 200               # Max log lines kept in memory
 LOG_DISPLAY_LINES = 10            # Lines shown in the web UI log section
-LOG_ERROR_DISPLAY = 5            # Max error lines shown in the callout banner
-LOG_ERROR_MARKERS = (             # Substrings marking a submission failure
-    '[Last.fm HTTP Error]',
-    '[Last.fm API Error]',
-    '[Last.fm Connection Error]',
-    '[Last.fm Error]',
-    '[Last.fm Unexpected Error]',
-)
+LOG_ERROR_DISPLAY = 5             # Max error lines shown in the callout banner

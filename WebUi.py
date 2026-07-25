@@ -5,6 +5,7 @@ All Rights Reserved
 See the licence.txt file provided with this software
 for full terms and conditions of use
 """
+import datetime
 import hmac
 import os
 import re
@@ -12,7 +13,7 @@ import secrets
 import threading
 import time
 from functools import wraps
-from flask import Flask, render_template, request, redirect, jsonify, send_file, url_for, current_app, Response, session, abort
+from flask import Flask, render_template, request, redirect, jsonify, send_file, url_for, Response, session, abort
 import LastFm
 
 def auth_required(f):
@@ -39,17 +40,13 @@ def auth_required(f):
     return decorated
 
 def create_app(settings, players, shutdown_callback, version, db, logger=None):
-    """Flask application factory"""
+    """Flask application factory.
+
+    Dependencies are held in this closure and used directly by the routes -
+    they are deliberately not also copied into app.config, which previously
+    meant maintaining two mechanisms for the same thing."""
     app = Flask(__name__)
     app.secret_key = secrets.token_hex(32)
-
-    # Store dependencies in app config
-    app.config['SK_SETTINGS'] = settings
-    app.config['SK_PLAYERS'] = players
-    app.config['SK_SHUTDOWN'] = shutdown_callback
-    app.config['SK_VERSION'] = version
-    app.config['SK_DB'] = db
-    app.config['SK_LOGGER'] = logger
 
     def generate_csrf_token():
         if '_csrf_token' not in session:
@@ -68,7 +65,6 @@ def create_app(settings, players, shutdown_callback, version, db, logger=None):
     @app.template_filter('datetimeformat')
     def datetimeformat_filter(value, format='%d/%m/%y %H:%M:%S'):
         if value is None: return ""
-        import datetime
         dt = datetime.datetime.fromtimestamp(value)
         return dt.strftime(format)
 
@@ -76,13 +72,8 @@ def create_app(settings, players, shutdown_callback, version, db, logger=None):
     @auth_required
     def index():
         """Main settings page"""
-        settings = current_app.config['SK_SETTINGS']
-        players = current_app.config['SK_PLAYERS']
-        db = current_app.config['SK_DB']
-        version = current_app.config['SK_VERSION']
-
         accounts = settings.get_accounts()
-        
+
         configured_players = []
         for p_name in settings.get_players():
             configured_players.append({
@@ -98,7 +89,6 @@ def create_app(settings, players, shutdown_callback, version, db, logger=None):
         recent_scrobbles = db.get_recent_history(10)
         host = settings.get_host()
 
-        logger = current_app.config['SK_LOGGER']
         log_lines = logger.get_recent_lines() if logger else []
         log_errors = logger.get_recent_errors() if logger else []
 
@@ -118,7 +108,6 @@ def create_app(settings, players, shutdown_callback, version, db, logger=None):
     @auth_required
     def logs():
         """Return recent log lines and submission-failure lines as JSON"""
-        logger = current_app.config['SK_LOGGER']
         if not logger:
             return jsonify({'lines': [], 'errors': []})
         return jsonify({
@@ -138,20 +127,21 @@ def create_app(settings, players, shutdown_callback, version, db, logger=None):
     @auth_required
     def verify_account():
         """Handle callback from Last.fm authentication"""
-        settings = current_app.config['SK_SETTINGS']
         token = request.args.get('token')
         if token:
             lastfm = LastFm.LastFm()
-            session = lastfm.auth_get_session(token)
-            if session and session['name'] not in settings.get_accounts():
-                settings.add_account(session['name'], session['key'], True)
+            # Named to avoid shadowing Flask's imported `session`
+            lastfm_session = lastfm.auth_get_session(token)
+            if lastfm_session:
+                # Unconditional: re-authorising an existing account must
+                # refresh its session key, not silently do nothing (A1)
+                settings.add_account(lastfm_session['name'], lastfm_session['key'], True)
         return redirect(url_for('index'))
 
     @app.route('/removeAccount', methods=['POST'])
     @auth_required
     def remove_account():
         """Remove a Last.fm account"""
-        settings = current_app.config['SK_SETTINGS']
         account = request.form.get('account')
         if account and account in settings.get_accounts():
             settings.remove_account(account)
@@ -161,7 +151,6 @@ def create_app(settings, players, shutdown_callback, version, db, logger=None):
     @auth_required
     def add_player():
         """Link a player to a Last.fm account"""
-        settings = current_app.config['SK_SETTINGS']
         player = request.form.get('player')
         account = request.form.get('account')
         if player and account and player not in settings.get_players():
@@ -175,7 +164,6 @@ def create_app(settings, players, shutdown_callback, version, db, logger=None):
     @auth_required
     def remove_player():
         """Unlink a player"""
-        settings = current_app.config['SK_SETTINGS']
         player = request.form.get('player')
         if player and player in settings.get_players():
             settings.remove_player(player)
@@ -185,7 +173,6 @@ def create_app(settings, players, shutdown_callback, version, db, logger=None):
     @auth_required
     def update_host():
         """Update network interface configuration"""
-        settings = current_app.config['SK_SETTINGS']
         host = request.form.get('host', '').strip()
         
         if not host or host == 'blank':
@@ -201,12 +188,11 @@ def create_app(settings, players, shutdown_callback, version, db, logger=None):
     @auth_required
     def exit_app():
         """Shut down the application"""
-        shutdown_cb = current_app.config['SK_SHUTDOWN']
 
         def delayed_shutdown():
             time.sleep(0.5)
-            if shutdown_cb:
-                shutdown_cb()
+            if shutdown_callback:
+                shutdown_callback()
             os._exit(0)
 
         threading.Thread(target=delayed_shutdown, daemon=True).start()
@@ -220,8 +206,6 @@ def create_app(settings, players, shutdown_callback, version, db, logger=None):
     @app.route('/health')
     def health():
         """Health check endpoint"""
-        settings = current_app.config['SK_SETTINGS']
-        version = current_app.config['SK_VERSION']
         return jsonify({
             'status': 'healthy',
             'version': version,

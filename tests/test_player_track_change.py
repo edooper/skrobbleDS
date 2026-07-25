@@ -60,12 +60,12 @@ def scrobbles():
 
 
 @pytest.fixture
-def player(monkeypatch):
+def player(monkeypatch, null_logger):
     monkeypatch.setattr(Constants, 'PLAYER_METADATA_UPDATE_DELAY', DELAY, raising=False)
     p = Player.Player.__new__(Player.Player)
     p._lock = threading.RLock()
     p.bus = EventBus.EventBus()
-    p.log = lambda msg: None
+    p.log = null_logger
     p.dev = SimpleNamespace(FriendlyName=lambda: 'TestPlayer')
     p.update_meta_timer = None
     p.play_status_timer = None

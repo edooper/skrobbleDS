@@ -52,10 +52,6 @@ class HttpPacket:
         """Get the body of the packet."""
         return self.iBody
 
-    def SetBody(self, aBody):
-        """Set the body of the packet."""
-        self.iBody = aBody
-
     def __str__(self):
         """Convert the packet to a string."""
         pktStr = ''

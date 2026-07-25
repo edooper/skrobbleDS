@@ -5,11 +5,16 @@ All Rights Reserved
 See the licence.txt file provided with this software
 for full terms and conditions of use
 """
+import contextlib
 import sqlite3
 import json
 import os
 
 MAX_HISTORY_ROWS = 10000
+
+# Pruning scans the whole history table, so amortise it rather than paying it
+# on every insert. The table is allowed to drift this far above the cap.
+HISTORY_PRUNE_INTERVAL = 100
 
 class Database(object):
     """Class to handle SQLite database operations for SkrobbleDs"""
@@ -25,11 +30,26 @@ class Database(object):
             os.makedirs(db_dir)
             
         self.db_path = os.path.join(db_dir, 'skrobbleds.db')
+        self._inserts_since_prune = 0
         self._init_db()
+
+    @contextlib.contextmanager
+    def _connect(self):
+        """Open a connection, commit on success, and always close it.
+
+        `with sqlite3.connect(...)` commits but does NOT close, so using it
+        directly leaks the connection until the GC gets to it.
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self):
         """Create the necessary tables if they don't already exist"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             # Enable Write-Ahead Logging for better concurrency
             conn.execute('PRAGMA journal_mode=WAL;')
             
@@ -65,7 +85,7 @@ class Database(object):
 
     def add_to_cache(self, info):
         """Add a failed scrobble to the cache"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute('''
                 INSERT INTO scrobble_cache 
                 (player, title, artist, album, tracknum, duration, playing, stopped)
@@ -83,7 +103,7 @@ class Database(object):
 
     def pop_from_cache(self):
         """Retrieve and remove the oldest cached scrobble (FIFO)"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             # BEGIN IMMEDIATE acquires a reserved lock before SELECT,
             # preventing another thread from reading the same row
@@ -108,13 +128,13 @@ class Database(object):
 
     def get_cache_size(self):
         """Return the number of items currently in the cache"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cursor = conn.execute('SELECT COUNT(*) FROM scrobble_cache')
             return cursor.fetchone()[0]
 
     def add_to_history(self, info):
         """Add a successful scrobble to the history"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute('''
                 INSERT INTO scrobble_history 
                 (player, title, artist, album, duration, timestamp)
@@ -127,17 +147,21 @@ class Database(object):
                 info.get('duration', 0),
                 int(info['playing'][0]) if info.get('playing') else 0
             ))
-            # Prune old history entries to prevent unbounded growth
-            conn.execute('''
-                DELETE FROM scrobble_history
-                WHERE id NOT IN (
-                    SELECT id FROM scrobble_history ORDER BY id DESC LIMIT ?
-                )
-            ''', (MAX_HISTORY_ROWS,))
+            # Prune old entries to prevent unbounded growth. This scans the
+            # whole table, so it runs periodically rather than on every insert
+            self._inserts_since_prune += 1
+            if self._inserts_since_prune >= HISTORY_PRUNE_INTERVAL:
+                self._inserts_since_prune = 0
+                conn.execute('''
+                    DELETE FROM scrobble_history
+                    WHERE id NOT IN (
+                        SELECT id FROM scrobble_history ORDER BY id DESC LIMIT ?
+                    )
+                ''', (MAX_HISTORY_ROWS,))
 
     def get_recent_history(self, limit=10):
         """Retrieve the most recent successful scrobbles"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cursor = conn.execute('''
                 SELECT player, title, artist, album, duration, timestamp, created_at 
                 FROM scrobble_history 

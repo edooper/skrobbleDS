@@ -63,19 +63,28 @@ def get_api_key():
     return API_KEY
 
 
+class _PrintLogger:
+    """Fallback when no logger is injected (e.g. the web UI's auth call)"""
+
+    def info(self, msg):
+        print(msg)
+
+    log = info
+
+    def debug(self, msg):
+        pass
+
+    def error(self, msg):
+        print(msg)
+
+
 class LastFm:
     """Interface for Last.fm API"""
 
     def __init__(self, logger=None):
         _ensure_config()
-        self.log = logger.log if logger else print
+        self.log = logger if logger is not None else _PrintLogger()
 
-    def auth_get_token(self):
-        """Get an authentication token from Last.fm"""
-        params = {'method': 'auth.getToken', 'api_key': API_KEY}
-        data = self._get_data(params, sign=True)
-        return data.findtext('token') if data is not None else None
-    
     def auth_get_session(self, token):
         """Get a session key using an authentication token"""
         params = {
@@ -133,10 +142,10 @@ class LastFm:
             with urllib.request.urlopen(request, timeout=10) as conn:
                 return self._check_response(conn.read())
         except urllib.error.HTTPError as e:
-            self.log(f"[Last.fm HTTP Error] GET {method} failed with HTTP {e.code}: {e.reason}")
+            self.log.error(f"Last.fm: GET {method} failed with HTTP {e.code}: {e.reason}")
             return None
         except urllib.error.URLError as e:
-            self.log(f"[Last.fm Connection Error] GET {method} failed: {e.reason}")
+            self.log.error(f"Last.fm: GET {method} could not connect: {e.reason}")
             return None
     
     def _post_data(self, params, sign=False):
@@ -157,11 +166,11 @@ class LastFm:
                     self._log_api_error(method, resp_data)
                 return resp
         except urllib.error.HTTPError as e:
-            self.log(f"[Last.fm HTTP Error] {method} failed with HTTP {e.code}: {e.reason}")
+            self.log.error(f"Last.fm: {method} failed with HTTP {e.code}: {e.reason}")
         except urllib.error.URLError as e:
-            self.log(f"[Last.fm Connection Error] {method} failed: {e.reason}")
+            self.log.error(f"Last.fm: {method} could not connect: {e.reason}")
         except Exception as e:
-            self.log(f"[Last.fm Unexpected Error] {method} failed: {type(e).__name__}: {str(e)}")
+            self.log.error(f"Last.fm: {method} failed unexpectedly: {type(e).__name__}: {e}")
         return None
     
     def _log_api_error(self, method, resp_data):
@@ -172,12 +181,12 @@ class LastFm:
             if error_elem is not None:
                 code = error_elem.get('code') or 'unknown'
                 msg = error_elem.text or 'no message'
-                self.log(f"[Last.fm API Error] {method} failed with code {code}: {msg}")
+                self.log.error(f"Last.fm: {method} rejected with code {code}: {msg}")
             else:
-                self.log(f"[Last.fm Error] {method} returned invalid response (status != ok)")
+                self.log.error(f"Last.fm: {method} returned a non-ok status")
         except Exception:
             preview = resp_data[:200].decode('utf-8', errors='replace') if resp_data else 'empty'
-            self.log(f"[Last.fm Error] {method} returned unparseable response: {preview}")
+            self.log.error(f"Last.fm: {method} returned an unparseable response: {preview}")
 
     def _check_response(self, xml_data):
         """Verify valid response from Last.fm, return XML root or None"""

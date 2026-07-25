@@ -31,7 +31,7 @@ class SkrobbleDs(Discovery.DiscoveryObserver):
         self.list_mutex = threading.Lock()
         self._shutdown_once = threading.Event()
         self.logger = Logger.Logger()
-        self.log = self.logger.log
+        self.log = self.logger
         self.settings = Settings.Settings()
         self.db = Database.Database()
         
@@ -44,7 +44,7 @@ class SkrobbleDs(Discovery.DiscoveryObserver):
         self.discovery.AddObserver(self)
         self.discovery.Start(Constants.DEV_TYPE_SOURCE)  # Start() also runs the first M-SEARCH
         
-        self.log(f'SkrobbleDs v{VERSION} started')
+        self.log.info(f'SkrobbleDs v{VERSION} started')
         self.webui = WebUi.WebUi(self.settings, self.player_list, self.shutdown, VERSION, self.db, self.logger)
 
     def run(self):
@@ -57,14 +57,14 @@ class SkrobbleDs(Discovery.DiscoveryObserver):
             return
         self._shutdown_once.set()
 
-        self.log('Shutting down....')
+        self.log.info('Shutting down....')
         try:
             if self.discovery:
                 self.discovery.RemoveObserver(self)
                 self.discovery.Stop()
                 self.discovery = None
         except Exception as e:
-            self.log(f'Error during discovery shutdown: {e}')
+            self.log.error(f'Error during discovery shutdown: {e}')
 
         with self.list_mutex:
             players = list(self.player_list)
@@ -79,7 +79,7 @@ class SkrobbleDs(Discovery.DiscoveryObserver):
         with self.list_mutex:
             player = self._find_player_in_list(device)
             if player is None:
-                self.log(f'{device.FriendlyName()} joined network')
+                self.log.info(f'{device.FriendlyName()} joined network')
                 player = Player.Player(device, self.settings, self.logger)
                 self.player_list.append(player)
 
@@ -88,7 +88,7 @@ class SkrobbleDs(Discovery.DiscoveryObserver):
         with self.list_mutex:
             player = self._find_player_in_list(device)
             if player is not None:
-                self.log(f'{player.name} gone away ({reason})')
+                self.log.info(f'{player.name} gone away ({reason})')
                 self.player_list.remove(player)
                 player.shutdown()
 

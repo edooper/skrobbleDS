@@ -16,6 +16,27 @@ import Upnp.NetUtil as NetUtil
 import EventBus
 import Constants
 
+
+def _blank_track(stopped=None):
+    """A track record with no metadata yet. One definition, so a new field
+       cannot be added to some resets and missed in others."""
+    return {
+        'playing': [],
+        'stopped': list(stopped) if stopped else [],
+        'duration': 0,
+        'player': '',
+        'artist': '',
+        'title': '',
+        'album': '',
+        'tracknum': ''
+    }
+
+
+def _blank_meta():
+    """Empty parsed-metadata record"""
+    return {'title': '', 'artist': '', 'album': '', 'tracknum': '', 'duration': 0}
+
+
 class Player:
     """Interface to OpenHome compliant player to scrobble to Last.fm"""
     
@@ -23,23 +44,14 @@ class Player:
         """Initialise class data and subscribe to UPnP events"""
         self.dev = device
         self.settings = settings
-        self.log = logger.log
+        self.log = logger
         self.bus = EventBus.EventBus()
         self._lock = threading.RLock()
         self.update_meta_timer = None
         self.play_status_timer = None
         self.stop_scrobble_timer = None
         self.is_playing = False
-        self.current = {
-            'playing': [],
-            'stopped': [],
-            'duration': 0,
-            'player': '',
-            'artist': '',
-            'title': '',
-            'album': '',
-            'tracknum': ''
-        }
+        self.current = _blank_track()
         self.duration = 0
         self.meta = {}
         self.current_uri = ''
@@ -69,9 +81,11 @@ class Player:
             if self.stop_scrobble_timer:
                 self.stop_scrobble_timer.cancel()
 
+            # Scrobble only - announcing 'now playing' while quitting is
+            # meaningless, and the Scrobbler discarded it anyway because the
+            # stop above post-dates the last play
             if self.current.get('title') and self.current.get('artist'):
-                self.bus.emit('now_playing', info=self.current)
-                self.bus.emit('scrobble', info=self.current)
+                self.bus.emit('scrobble', info=copy.deepcopy(self.current))
 
         for sub in self.subscriptions:
             sub.Unsubscribe()
@@ -129,7 +143,7 @@ class Player:
     def _on_track_change(self):
         """Handle a track boundary (a new Uri): scrobble the outgoing track and
            reset state for the incoming one. Caller must hold self._lock."""
-        self.log(f'[DEBUG] {self.name}: Track change event detected')
+        self.log.debug(f'{self.name}: Track change event detected')
         if self.update_meta_timer:
             self.update_meta_timer.cancel()
         if self.stop_scrobble_timer:
@@ -142,19 +156,10 @@ class Player:
         if self.current.get('title') and self.current.get('artist'):
             self.bus.emit('scrobble', info=copy.deepcopy(self.current))
 
-        self.current = {
-            'playing': [],
-            'stopped': [],
-            'duration': 0,
-            'player': '',
-            'artist': '',
-            'album': '',
-            'tracknum': '',
-            'title': ''
-        }
+        self.current = _blank_track()
         # Prevent the previous track's metadata from being copied into this
         # track if its Metadata event hasn't arrived yet
-        self.meta = {'title': '', 'artist': '', 'album': '', 'tracknum': '', 'duration': 0}
+        self.meta = _blank_meta()
         # Reset the fallback duration too so a stale Duration event can't leak
         # into the next track if its DIDL omits one
         self.duration = 0
@@ -169,7 +174,7 @@ class Player:
 
     def _parse_metadata(self, xml_val):
         """Parse DIDL-Lite metadata XML"""
-        new_meta = {'title': '', 'artist': '', 'album': '', 'tracknum': '', 'duration': 0}
+        new_meta = _blank_meta()
         if not xml_val:
             self.meta = new_meta
             return
@@ -213,7 +218,7 @@ class Player:
                         new_meta['duration'] = dur
                         break
         except ET.ParseError as e:
-            self.log(f'[DEBUG] {self.name}: Failed to parse metadata XML: {e}')
+            self.log.debug(f'{self.name}: Failed to parse metadata XML: {e}')
 
         self.meta = new_meta
 
@@ -237,7 +242,7 @@ class Player:
         with self._lock:
             if name == 'TransportState':
                 if value == 'Playing':
-                    self.log(f'[DEBUG] {self.name}: Playback started')
+                    self.log.debug(f'{self.name}: Playback started')
                     self.is_playing = True
                     self.current['playing'].append(time.time())
                     if self.stop_scrobble_timer:
@@ -249,7 +254,7 @@ class Player:
                     self.play_status_timer.daemon = True
                     self.play_status_timer.start()
                 else:
-                    self.log(f'[DEBUG] {self.name}: Playback {value.lower()}')
+                    self.log.debug(f'{self.name}: Playback {value.lower()}')
                     self.is_playing = False
                     self.current['stopped'].append(time.time())
                     if value == 'Stopped':
@@ -269,23 +274,16 @@ class Player:
             if self.is_playing:
                 return
             if self.current.get('title') and self.current.get('artist'):
-                self.log(f'[DEBUG] {self.name}: Playback stopped - scrobbling last track')
+                self.log.debug(f'{self.name}: Playback stopped - scrobbling last track')
                 self.bus.emit('scrobble', info=copy.deepcopy(self.current))
             # Mark the track consumed so a later track change or shutdown
             # doesn't scrobble it again
-            self.current = {
-                'playing': [],
-                'stopped': [time.time()],
-                'duration': 0,
-                'player': '',
-                'artist': '',
-                'album': '',
-                'tracknum': '',
-                'title': ''
-            }
+            self.current = _blank_track(stopped=[time.time()])
 
     def _update_meta(self):
-        """Update metadata and play status - triggered by TrackCount event"""
+        """Copy freshly-parsed metadata onto the current track - triggered by
+           the metadata timer after a track change, or directly when a late
+           Metadata event arrives"""
         with self._lock:
             if 'title' in self.meta:
                 # Prefer the DIDL duration (atomic with the title); fall back to
@@ -297,14 +295,15 @@ class Player:
                 self.current['artist'] = self.meta['artist']
                 self.current['album'] = self.meta['album']
                 self.current['tracknum'] = self.meta['tracknum']
-                self.log(f"[DEBUG] {self.name}: Track metadata received -> {self.meta['artist']} - {self.meta['title']} ({duration}s)")
+                self.log.debug(f"{self.name}: Track metadata received -> {self.meta['artist']} - {self.meta['title']} ({duration}s)")
                 if self.is_playing:
                     if self.play_status_timer:
                         self.play_status_timer.cancel()
                     self._update_play_status()
 
     def _update_play_status(self):
-        """Update now playing status - triggered by TrackCount or Playing events"""
+        """Announce the current track as now playing - triggered by the play
+           status timer, or directly once metadata arrives while playing"""
         with self._lock:
             self.bus.emit('now_playing', info=copy.deepcopy(self.current))
             

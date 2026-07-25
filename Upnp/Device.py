@@ -1,6 +1,4 @@
 import re
-import http.client as httplib
-import socket
 import xml.etree.ElementTree as etree
 from . import Service
 from threading import Thread
@@ -51,20 +49,16 @@ class DescriptionRetriever(Thread):
         self.iConn = None
         return descXml
 
-    def RetrieveServiceDescs(self, aDevice):
-        for serv in aDevice.ServiceList():
-            xmlDesc = self.GetXmlDescription(serv.ScpdUrl())
-            serv.ParseXmlDesc(xmlDesc)
-        for dev in aDevice.DeviceList():
-            self.RetrieveServiceDescs(dev)
-
     def run(self):
         try:
-            # Retrieve the device and service descriptions and notify the discovery object
-            # when done
+            # Retrieve the device description and notify the discovery object
+            # when done. The per-service SCPD files are deliberately NOT
+            # fetched: nothing reads the action/state-variable tables they
+            # describe, and fetching them added an HTTP round-trip per service
+            # inside this single try/except - so one slow or failed SCPD made
+            # the whole device undiscoverable.
             devDescXml = self.GetXmlDescription(self.iLocation)
             rootDev = RootDevice(devDescXml, self.iLocation)
-            self.RetrieveServiceDescs(rootDev.Device())
             self.iDevice = rootDev.Device().FindDevice(self.iUuid)
             self.iDiscovery.DeviceDescriptionDone( self.iUuid, self.iDevice )
 
@@ -153,16 +147,10 @@ class Device:
         
         # deviceList
         deviceList = aDevElem.find( '{%s}deviceList' % (aDevNs) )
-        if deviceList:
+        if deviceList is not None:
             for device in deviceList:
                 newDev = Device( device, aDevNs, aRootDevice )
                 self.iDeviceList.append( newDev )
-        
-        # presentationUrl
-        try:
-            self.iPresentationUrl = aDevElem.find( '{%s}presentationURL' % (aDevNs) ).text or ''
-        except (AttributeError, TypeError):
-            self.iPresentationUrl = ''
         
     def __str__(self):
         devStr  = 'DEVICE:\r\n'
@@ -188,9 +176,6 @@ class Device:
 
     def FriendlyName(self):
         return self.iFriendlyName
-
-    def PresentationUrl(self):
-        return self.iPresentationUrl
 
     def SetLocation(self, aLocation):
         self.iRootDevice.SetLocation(aLocation)
