@@ -20,7 +20,7 @@ import Database
 import EventBus
 import Constants
 
-VERSION = '1.0.0'
+VERSION = '1.0.1'
 
 class SkrobbleDs(Discovery.DiscoveryObserver):
     """Last.fm scrobbler for Linn DS players"""

@@ -1,4 +1,4 @@
-# SkrobbleDS v1.0.0
+# SkrobbleDS v1.0.1
 
 Last.fm scrobbler for Linn DS and OpenHome-compliant UPnP media players.
 
@@ -236,7 +236,11 @@ The application supports the following environment variables:
 
 ## Changelog
 
-### v1.0.0 (Current)
+### v1.0.1 (Current)
+
+- **Fix (duplicate scrobbles for very long tracks)**: restarting the app while a track was playing scrobbled it twice. Shutdown scrobbles the in-progress track, and the restarted process then treats the still-playing track as new and scrobbles it again when it ends. Only long tracks were affected: Last.fm's rule is half the track *or* 4 minutes, whichever comes first, so on a two-hour mix the segments either side of the restart each clear 4 minutes independently — on an ordinary track neither half qualifies. A scrobble is now suppressed if the same track was already scrobbled starting within the track's own runtime, checked against the persisted history so it survives the restart.
+
+### v1.0.0
 
 First stable release. No change to what the application does — this is the
 0.95.7 feature set with the codebase reviewed end to end (see
