@@ -120,11 +120,26 @@ class Scrobbler:
             self.log.info(f"{info['player']}: NO scrobble (playtime {play_time}s) {info_msg}")
             return
 
+        # Last.fm timestamps a scrobble by when playback STARTED, not when it
+        # was submitted
+        timestamp = int(info['playing'][0])
+
+        # A track cannot legitimately be completed twice within its own
+        # runtime, so an overlapping start is a duplicate. This happens when
+        # the app restarts mid-track: shutdown scrobbles the in-progress
+        # track, then the restarted process treats the still-playing track as
+        # new and scrobbles it again when it ends. Only long tracks are
+        # affected, because both halves independently clear the 240s rule.
+        if self.db.was_scrobbled_recently(info['player'], info['title'],
+                                          info['artist'], duration, timestamp):
+            self.log.info(f"{info['player']}: NO scrobble (already scrobbled) {info_msg}")
+            return
+
         sk = self.settings.get_session_key(info['player'])
         self.log.info(f"{info['player']}: Submitting scrobble -> {info_msg}")
         resp = self.lastfm.track_scrobble(
             sk, info['title'], info['artist'], album,
-            info.get('tracknum', ''), duration, int(info['playing'][0])
+            info.get('tracknum', ''), duration, timestamp
         )
 
         if resp is not None:

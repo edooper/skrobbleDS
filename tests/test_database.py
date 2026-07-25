@@ -88,6 +88,69 @@ def test_history_is_pruned_to_the_cap(db, monkeypatch):
     assert rows[0]['track'] == 'Song 59'
 
 
+class TestWasScrobbledRecently:
+    """Duplicate suppression across restarts.
+
+    A track cannot legitimately be completed twice within its own runtime, so
+    a second scrobble whose start time falls inside the first one's duration
+    is a duplicate - typically the app being restarted mid-track, which
+    scrobbles the in-progress track and then re-scrobbles it when it ends.
+    """
+
+    def _add(self, db, title, start, duration=7083):
+        db.add_to_history({
+            'player': 'Living Room', 'title': title, 'artist': 'UNKLE',
+            'album': 'Essential Mix', 'tracknum': '1',
+            'duration': duration, 'playing': [start], 'stopped': [],
+        })
+
+    def test_detects_the_essential_mix_case(self, db):
+        """The real failure: 7083s track, second start 537s after the first."""
+        self._add(db, 'Essential Mix 060102', 1784979508)
+        assert db.was_scrobbled_recently(
+            'Living Room', 'Essential Mix 060102', 'UNKLE', 7083, 1784980045)
+
+    def test_allows_a_genuine_replay_after_the_track_ends(self, db):
+        """Starting the track again once it has finished is a real second listen."""
+        self._add(db, 'Essential Mix 060102', 1784979508)
+        assert not db.was_scrobbled_recently(
+            'Living Room', 'Essential Mix 060102', 'UNKLE', 7083,
+            1784979508 + 7083)
+
+    def test_back_to_back_short_track_is_not_suppressed(self, db):
+        """A 200s track played twice in a row starts exactly one duration
+        apart - that is two real listens, not a duplicate."""
+        self._add(db, 'Short Song', 1000, duration=200)
+        assert not db.was_scrobbled_recently(
+            'Living Room', 'Short Song', 'UNKLE', 200, 1200)
+
+    def test_a_different_track_is_never_suppressed(self, db):
+        self._add(db, 'Essential Mix 060102', 1784979508)
+        assert not db.was_scrobbled_recently(
+            'Living Room', 'Some Other Track', 'UNKLE', 7083, 1784980045)
+
+    def test_same_title_different_duration_is_a_different_track(self, db):
+        """Suites often repeat a title across movements of different lengths."""
+        self._add(db, 'Ashes to Gold', 1784902026, duration=215)
+        assert not db.was_scrobbled_recently(
+            'Living Room', 'Ashes to Gold', 'UNKLE', 132, 1784902583)
+
+    def test_scoped_to_the_player(self, db):
+        self._add(db, 'Essential Mix 060102', 1784979508)
+        assert not db.was_scrobbled_recently(
+            'Kitchen', 'Essential Mix 060102', 'UNKLE', 7083, 1784980045)
+
+    def test_earlier_timestamp_also_detected(self, db):
+        """Cache retries can submit out of order, so the check is symmetric."""
+        self._add(db, 'Essential Mix 060102', 1784980045)
+        assert db.was_scrobbled_recently(
+            'Living Room', 'Essential Mix 060102', 'UNKLE', 7083, 1784979508)
+
+    def test_empty_history_suppresses_nothing(self, db):
+        assert not db.was_scrobbled_recently(
+            'Living Room', 'Anything', 'UNKLE', 300, 1784979508)
+
+
 def test_many_operations_do_not_exhaust_connections(db):
     """Each call opens and closes its own connection; a leak would surface as
     an OperationalError long before this completes."""
