@@ -1,4 +1,5 @@
 """Tests for Scrobbler play-time calculation and shutdown queue drain."""
+import threading
 import time
 
 import Scrobbler
@@ -52,15 +53,15 @@ class FakeLogger:
 
 
 class FakeDb:
-    def __init__(self):
-        self.cached = []
+    def __init__(self, cached=None):
+        self.cached = list(cached or [])
         self.history = []
 
     def get_cache_size(self):
-        return 0
+        return len(self.cached)
 
     def pop_from_cache(self):
-        return None
+        return self.cached.pop(0) if self.cached else None
 
     def add_to_cache(self, info):
         self.cached.append(info)
@@ -106,3 +107,66 @@ def test_shutdown_drains_pending_scrobbles():
     finally:
         scrobbler.shutdown()
     assert sorted(fake.scrobbled) == ['Track 0', 'Track 1', 'Track 2']
+
+
+class ExplodingLastFm(FakeLastFm):
+    """Fails the first submission, then behaves normally."""
+
+    def __init__(self):
+        super().__init__()
+        self.calls = 0
+
+    def track_scrobble(self, sk, title, artist, album, tracknum, duration, timestamp):
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError('boom')
+        return super().track_scrobble(sk, title, artist, album, tracknum, duration, timestamp)
+
+
+def test_worker_survives_unexpected_error():
+    """An exception must not kill the daemon thread and end all scrobbling (A3).
+
+    The thread dying is silent: the process keeps running and /health keeps
+    reporting healthy while nothing is ever scrobbled again.
+    """
+    fake = ExplodingLastFm()
+    scrobbler = Scrobbler.Scrobbler(FakeSettings(), FakeLogger(), FakeDb(), lastfm=fake)
+    try:
+        scrobbler.scrobble_q.put(_track('Explodes'))
+        scrobbler.scrobble_q.put(_track('Survives'))
+    finally:
+        scrobbler.shutdown()
+    assert scrobbler.scrobble_thread.is_alive() is False  # exited via sentinel, not a crash
+    assert fake.scrobbled == ['Survives']
+
+
+class BlockingLastFm(FakeLastFm):
+    """Holds the first submission open so the cache can be inspected mid-flight."""
+
+    def __init__(self):
+        super().__init__()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def track_scrobble(self, *args):
+        self.entered.set()
+        self.release.wait(5)
+        return super().track_scrobble(*args)
+
+
+def test_startup_does_not_drain_cache_into_memory():
+    """Only one cached scrobble is primed; the rest stay durable in the DB (A4).
+
+    An in-memory backlog dies with the process, defeating the cache's whole
+    purpose. Items leave the database one at a time as each is submitted.
+    """
+    db = FakeDb(cached=[_track(f'Cached {i}') for i in range(5)])
+    fake = BlockingLastFm()
+    scrobbler = Scrobbler.Scrobbler(FakeSettings(), FakeLogger(), db, lastfm=fake)
+    try:
+        # Block inside the first submission: exactly one item has been taken
+        assert fake.entered.wait(5), 'worker never picked up the primed scrobble'
+        assert db.get_cache_size() == 4
+    finally:
+        fake.release.set()
+        scrobbler.shutdown()
