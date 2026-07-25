@@ -70,6 +70,16 @@ class FakeDb:
         self.cached = list(cached or [])
         self.history = []
 
+    def was_scrobbled_recently(self, player, title, artist, duration, timestamp):
+        if not duration:
+            return False
+        return any(
+            h.get('player') == player and h.get('title') == title
+            and h.get('artist') == artist and h.get('duration') == duration
+            and h.get('playing') and abs(int(h['playing'][0]) - timestamp) < duration
+            for h in self.history
+        )
+
     def get_cache_size(self):
         return len(self.cached)
 
@@ -154,6 +164,49 @@ def test_worker_survives_unexpected_error():
     assert fake.scrobbled == ['Survives']
     # The failure is reported at error level, so it reaches the UI banner
     assert any('RuntimeError: boom' in e for e in logger.errors)
+
+
+def _long_track(start, duration=7083):
+    """A two-hour mix, started at `start` and played to `stop`."""
+    return {
+        'player': 'P', 'title': 'Essential Mix 060102', 'artist': 'UNKLE',
+        'album': 'Essential Mix', 'tracknum': '1', 'duration': duration,
+        'playing': [start], 'stopped': [start + duration],
+    }
+
+
+def test_restart_mid_track_does_not_scrobble_twice():
+    """Reproduces the production duplicate.
+
+    Shutting down mid-track scrobbles the in-progress track; the restarted
+    process then sees the still-playing track as new and scrobbles it again
+    when it ends, 537s later by its own start time. Both halves of a 2-hour
+    mix independently clear the 240s rule, so both submit.
+    """
+    db = FakeDb()
+    fake = FakeLastFm()
+    scrobbler = Scrobbler.Scrobbler(FakeSettings(), FakeLogger(), db, lastfm=fake)
+    try:
+        scrobbler.scrobble_q.put(_long_track(1784979508))   # scrobbled at shutdown
+        scrobbler.scrobble_q.put(_long_track(1784980045))   # again after restart
+    finally:
+        scrobbler.shutdown()
+    assert fake.scrobbled == ['Essential Mix 060102'], 'the second submission must be suppressed'
+    assert len(db.history) == 1
+
+
+def test_genuine_replay_after_the_track_ends_still_scrobbles():
+    """Suppression must not swallow a real second listen."""
+    db = FakeDb()
+    fake = FakeLastFm()
+    scrobbler = Scrobbler.Scrobbler(FakeSettings(), FakeLogger(), db, lastfm=fake)
+    try:
+        scrobbler.scrobble_q.put(_long_track(1784979508))
+        scrobbler.scrobble_q.put(_long_track(1784979508 + 7083))
+    finally:
+        scrobbler.shutdown()
+    assert fake.scrobbled == ['Essential Mix 060102', 'Essential Mix 060102']
+    assert len(db.history) == 2
 
 
 class BlockingLastFm(FakeLastFm):

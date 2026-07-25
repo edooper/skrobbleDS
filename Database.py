@@ -159,6 +159,30 @@ class Database(object):
                     )
                 ''', (MAX_HISTORY_ROWS,))
 
+    def was_scrobbled_recently(self, player, title, artist, duration, timestamp):
+        """True if this track was already scrobbled starting within its own runtime.
+
+        A track cannot legitimately be completed twice inside its own duration,
+        so an overlapping start is a duplicate rather than a second listen. The
+        usual cause is the app restarting mid-track: shutdown scrobbles the
+        in-progress track, then the restarted process sees the still-playing
+        track as new and scrobbles it again when it ends. Long tracks are the
+        ones affected, because both halves independently clear the 240s rule.
+
+        Checked against the persisted history so it holds across restarts.
+        Symmetric in time, since cache retries can submit out of order.
+        """
+        if not duration:
+            return False
+        with self._connect() as conn:
+            cursor = conn.execute('''
+                SELECT 1 FROM scrobble_history
+                WHERE player = ? AND title = ? AND artist = ? AND duration = ?
+                  AND ABS(timestamp - ?) < ?
+                LIMIT 1
+            ''', (player, title, artist, duration, timestamp, duration))
+            return cursor.fetchone() is not None
+
     def get_recent_history(self, limit=10):
         """Retrieve the most recent successful scrobbles"""
         with self._connect() as conn:
