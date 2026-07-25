@@ -153,7 +153,7 @@ class Device:
         
         # deviceList
         deviceList = aDevElem.find( '{%s}deviceList' % (aDevNs) )
-        if deviceList:
+        if deviceList is not None:
             for device in deviceList:
                 newDev = Device( device, aDevNs, aRootDevice )
                 self.iDeviceList.append( newDev )

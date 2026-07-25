@@ -247,8 +247,11 @@ class Discovery(Ssdp.SsdpObserver):
             return
 
 
-        # Skip packets that do not match the search type        
-        if re.match( '^' + newPkt.TypeString() + '$', self.iSearchType ) == None:
+        # Skip packets that do not match the search type. A plain comparison,
+        # as in DoMsearch: the type comes from the NT header of any NOTIFY on
+        # the LAN, and building a regex out of it lets a device with regex
+        # metacharacters in its type raise re.error instead of just not matching
+        if newPkt.TypeString() != self.iSearchType:
             return
 
         self.iLock.acquire()
