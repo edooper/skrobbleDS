@@ -142,9 +142,12 @@ def create_app(settings, players, shutdown_callback, version, db, logger=None):
         token = request.args.get('token')
         if token:
             lastfm = LastFm.LastFm()
-            session = lastfm.auth_get_session(token)
-            if session and session['name'] not in settings.get_accounts():
-                settings.add_account(session['name'], session['key'], True)
+            # Named to avoid shadowing Flask's imported `session`
+            lastfm_session = lastfm.auth_get_session(token)
+            if lastfm_session:
+                # Unconditional: re-authorising an existing account must
+                # refresh its session key, not silently do nothing (A1)
+                settings.add_account(lastfm_session['name'], lastfm_session['key'], True)
         return redirect(url_for('index'))
 
     @app.route('/removeAccount', methods=['POST'])

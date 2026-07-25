@@ -21,11 +21,12 @@ class Settings:
         """Initialise class from JSON file (or create file if it doesn't exist)"""
         self._lock = threading.RLock()
         self.host = None
-        self.accounts = []
-        self.players = []
-        self.keys = {}    # LastFm session keys indexed by player name
-        self.users = {}    # LastFm users indexed by player name
-        self.keys_by_user = {}    # LastFm session keys indexed by LastFm user
+        # Two mappings, no derived copies: a player's session key is always
+        # looked up through its account, so re-authorising an account takes
+        # effect immediately for every player linked to it. Dicts preserve
+        # insertion order, so the list accessors keep their config order.
+        self.accounts = {}    # LastFm user -> session key
+        self.players = {}     # player name -> LastFm user
 
         # Use local settings directory instead of user's home directory
         # Support CONFIG_DIR environment variable for container deployments
@@ -98,12 +99,12 @@ class Settings:
     def get_session_key(self, player_name):
         """Return LastFm session key for use with supplied player"""
         with self._lock:
-            return self.keys.get(player_name)
+            return self.accounts.get(self.players.get(player_name))
 
     def get_user(self, player_name):
         """Return LastFm user for use with supplied player"""
         with self._lock:
-            return self.users.get(player_name)
+            return self.players.get(player_name)
 
     def update_host(self, host, update_json=False):
         """Update host setting"""
@@ -113,53 +114,33 @@ class Settings:
                 self._save_settings()
 
     def add_account(self, user, key, update_json=False):
-        """Add a new LastFm account"""
+        """Add a new LastFm account, or refresh the key of an existing one"""
         with self._lock:
-            if user not in self.accounts:
-                self.accounts.append(user)
-            self.keys_by_user[user] = key
+            self.accounts[user] = key
             if update_json:
                 self._save_settings()
 
     def add_player(self, user, player_name, update_json=False):
         """Add a new player to be scrobbled"""
         with self._lock:
-            if user not in self.keys_by_user:
+            if user not in self.accounts:
                 raise ValueError(f"User '{user}' not found. Please add the account first before adding a player.")
-            if player_name not in self.players:
-                self.players.append(player_name)
-            self.users[player_name] = user
-            self.keys[player_name] = self.keys_by_user[user]
+            self.players[player_name] = user
             if update_json:
                 self._save_settings()
-
-    def _remove_player_no_save(self, player_name):
-        """Remove a player from in-memory state without saving to disk"""
-        if player_name in self.players:
-            self.players.remove(player_name)
-        if player_name in self.users:
-            del self.users[player_name]
-        if player_name in self.keys:
-            del self.keys[player_name]
 
     def remove_account(self, user):
         """Remove a LastFm account from class and JSON"""
         with self._lock:
-            if user in self.accounts:
-                self.accounts.remove(user)
-
-            players_to_remove = [p for p, u in self.users.items() if u == user]
-            for player in players_to_remove:
-                self._remove_player_no_save(player)
-
-            if user in self.keys_by_user:
-                del self.keys_by_user[user]
+            self.accounts.pop(user, None)
+            for player in [p for p, u in self.players.items() if u == user]:
+                del self.players[player]
             self._save_settings()
 
     def remove_player(self, player_name):
         """Remove a player from class and JSON"""
         with self._lock:
-            self._remove_player_no_save(player_name)
+            self.players.pop(player_name, None)
             self._save_settings()
 
     def _save_settings(self):
@@ -182,9 +163,9 @@ class Settings:
         config['lastfm']['accounts'] = [
             {
                 'user': user,
-                'session_key': self.keys_by_user[user]
+                'session_key': key
             }
-            for user in self.accounts
+            for user, key in self.accounts.items()
         ]
 
         # Restore api_key and api_secret if they were present
@@ -202,9 +183,9 @@ class Settings:
         config['players'] = [
             {
                 'name': player,
-                'user': self.users[player]
+                'user': user
             }
-            for player in self.players
+            for player, user in self.players.items()
         ]
 
         # Write atomically: write to temp file then rename
