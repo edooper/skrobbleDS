@@ -67,6 +67,21 @@ def test_log_message_reaches_ring_buffer():
     assert _wait_for(lambda: any('hello from test' in line for line in logger.get_recent_lines()))
 
 
+def test_shutdown_drains_pending_lines():
+    """Lines queued before shutdown must be written, not dropped (A2).
+
+    SkrobbleDs shuts the logger down last, so these are exactly the final
+    scrobble results you would want when diagnosing a shutdown.
+    """
+    logger = _make_logger()
+    for i in range(20):
+        logger.log(f'pending line {i}')
+    logger.shutdown()
+    lines = list(logger.recent)
+    for i in range(20):
+        assert any(f'pending line {i}' in line for line in lines), f'dropped line {i}'
+
+
 def test_debug_message_excluded_when_debug_disabled():
     logger = _make_logger()
     assert logger.debug_enabled is False

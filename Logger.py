@@ -13,11 +13,15 @@ import os
 
 import Constants
 
+# Sentinel enqueued by shutdown() *after* any pending messages, so the output
+# thread drains everything already queued before it stops. Mirrors the 'bye'
+# sentinel in Scrobbler.
+_SHUTDOWN = object()
+
 class Logger:
     """Thread-safe logging system for SkrobbleDs"""
 
     def __init__(self):
-        self.shutdown_flag = False
         self.msg_queue = queue.Queue()
         self.log_file = None
 
@@ -51,9 +55,9 @@ class Logger:
         self.output_thread.start()
 
     def shutdown(self):
-        """Cleanly shutdown the logger"""
-        self.shutdown_flag = True
+        """Cleanly shutdown the logger, writing anything still queued"""
         self.log('ByeBye')
+        self.msg_queue.put(_SHUTDOWN)
         self.output_thread.join()
         if self.log_file:
             try:
@@ -88,13 +92,15 @@ class Logger:
         return errors[-count:]
 
     def output_loop(self):
-        """Background thread for processing the log message queue"""
-        while not self.shutdown_flag:
-            msg = str(self.msg_queue.get())
-
-            # Filter debug messages if debug is not enabled
-            if msg.startswith('[DEBUG]') and not self.debug_enabled:
-                continue
+        """Background thread for processing the log message queue.
+           Terminates on the _SHUTDOWN sentinel, which shutdown() enqueues
+           last so that messages already queued are still written."""
+        while True:
+            msg = self.msg_queue.get()
+            if msg is _SHUTDOWN:
+                break
+            # Debug messages are already filtered by log() before queueing
+            msg = str(msg)
 
             ts = time.strftime('%d/%m/%y %H:%M:%S')
             formatted_msg = f'[{ts}] {msg}'
