@@ -44,7 +44,7 @@ class Player:
         """Initialise class data and subscribe to UPnP events"""
         self.dev = device
         self.settings = settings
-        self.log = logger.log
+        self.log = logger
         self.bus = EventBus.EventBus()
         self._lock = threading.RLock()
         self.update_meta_timer = None
@@ -143,7 +143,7 @@ class Player:
     def _on_track_change(self):
         """Handle a track boundary (a new Uri): scrobble the outgoing track and
            reset state for the incoming one. Caller must hold self._lock."""
-        self.log(f'[DEBUG] {self.name}: Track change event detected')
+        self.log.debug(f'{self.name}: Track change event detected')
         if self.update_meta_timer:
             self.update_meta_timer.cancel()
         if self.stop_scrobble_timer:
@@ -218,7 +218,7 @@ class Player:
                         new_meta['duration'] = dur
                         break
         except ET.ParseError as e:
-            self.log(f'[DEBUG] {self.name}: Failed to parse metadata XML: {e}')
+            self.log.debug(f'{self.name}: Failed to parse metadata XML: {e}')
 
         self.meta = new_meta
 
@@ -242,7 +242,7 @@ class Player:
         with self._lock:
             if name == 'TransportState':
                 if value == 'Playing':
-                    self.log(f'[DEBUG] {self.name}: Playback started')
+                    self.log.debug(f'{self.name}: Playback started')
                     self.is_playing = True
                     self.current['playing'].append(time.time())
                     if self.stop_scrobble_timer:
@@ -254,7 +254,7 @@ class Player:
                     self.play_status_timer.daemon = True
                     self.play_status_timer.start()
                 else:
-                    self.log(f'[DEBUG] {self.name}: Playback {value.lower()}')
+                    self.log.debug(f'{self.name}: Playback {value.lower()}')
                     self.is_playing = False
                     self.current['stopped'].append(time.time())
                     if value == 'Stopped':
@@ -274,7 +274,7 @@ class Player:
             if self.is_playing:
                 return
             if self.current.get('title') and self.current.get('artist'):
-                self.log(f'[DEBUG] {self.name}: Playback stopped - scrobbling last track')
+                self.log.debug(f'{self.name}: Playback stopped - scrobbling last track')
                 self.bus.emit('scrobble', info=copy.deepcopy(self.current))
             # Mark the track consumed so a later track change or shutdown
             # doesn't scrobble it again
@@ -295,7 +295,7 @@ class Player:
                 self.current['artist'] = self.meta['artist']
                 self.current['album'] = self.meta['album']
                 self.current['tracknum'] = self.meta['tracknum']
-                self.log(f"[DEBUG] {self.name}: Track metadata received -> {self.meta['artist']} - {self.meta['title']} ({duration}s)")
+                self.log.debug(f"{self.name}: Track metadata received -> {self.meta['artist']} - {self.meta['title']} ({duration}s)")
                 if self.is_playing:
                     if self.play_status_timer:
                         self.play_status_timer.cancel()

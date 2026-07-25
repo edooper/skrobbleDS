@@ -48,8 +48,21 @@ class FakeSettings:
 
 
 class FakeLogger:
-    def log(self, msg):
+    """Records failures so tests can assert on them; discards the rest."""
+
+    def __init__(self):
+        self.errors = []
+
+    def info(self, msg):
         pass
+
+    log = info
+
+    def debug(self, msg):
+        pass
+
+    def error(self, msg):
+        self.errors.append(msg)
 
 
 class FakeDb:
@@ -130,7 +143,8 @@ def test_worker_survives_unexpected_error():
     reporting healthy while nothing is ever scrobbled again.
     """
     fake = ExplodingLastFm()
-    scrobbler = Scrobbler.Scrobbler(FakeSettings(), FakeLogger(), FakeDb(), lastfm=fake)
+    logger = FakeLogger()
+    scrobbler = Scrobbler.Scrobbler(FakeSettings(), logger, FakeDb(), lastfm=fake)
     try:
         scrobbler.scrobble_q.put(_track('Explodes'))
         scrobbler.scrobble_q.put(_track('Survives'))
@@ -138,6 +152,8 @@ def test_worker_survives_unexpected_error():
         scrobbler.shutdown()
     assert scrobbler.scrobble_thread.is_alive() is False  # exited via sentinel, not a crash
     assert fake.scrobbled == ['Survives']
+    # The failure is reported at error level, so it reaches the UI banner
+    assert any('RuntimeError: boom' in e for e in logger.errors)
 
 
 class BlockingLastFm(FakeLastFm):

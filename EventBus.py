@@ -54,6 +54,6 @@ class EventBus:
                 tb = traceback.format_exc()
                 msg = f"Error in EventBus callback for {event_type}: {e}\n{tb}"
                 if self._logger:
-                    self._logger.log(msg)
+                    self._logger.error(msg)
                 else:
                     print(msg)

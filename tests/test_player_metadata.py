@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 
 import Player
+from conftest import NullLogger
 
 
 DIDL = (
@@ -22,7 +23,7 @@ DIDL = (
 def _player():
     p = Player.Player.__new__(Player.Player)
     p.meta = {}
-    p.log = lambda msg: None
+    p.log = NullLogger()
     p.dev = SimpleNamespace(FriendlyName=lambda: 'TestPlayer')
     return p
 

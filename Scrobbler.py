@@ -18,7 +18,7 @@ class Scrobbler:
         """Initialise class data, start scrobbling and now-playing monitors.
            `lastfm` is injectable so tests need no on-disk credentials."""
         self.settings = settings
-        self.log = logger.log
+        self.log = logger
         self.shutdown_flag = False
         self.lastfm = lastfm if lastfm is not None else LastFm.LastFm(logger)
         self.scrobble_q = queue.Queue()
@@ -37,7 +37,7 @@ class Scrobbler:
         # next one, and the queue timeout below sweeps up any remainder.
         cache_size = self.db.get_cache_size()
         if cache_size > 0:
-            self.log(f'Scrobbler: {cache_size} cached scrobbles pending retry')
+            self.log.info(f'Scrobbler: {cache_size} cached scrobbles pending retry')
             item = self.db.pop_from_cache()
             if item:
                 self.scrobble_q.put(item)
@@ -90,7 +90,7 @@ class Scrobbler:
             try:
                 self._handle_scrobble(info)
             except Exception as e:
-                self.log(f'Scrobbler: error handling scrobble: {type(e).__name__}: {e}')
+                self.log.error(f'Scrobbler: error handling scrobble: {type(e).__name__}: {e}')
 
     def _handle_scrobble(self, info):
         """Apply the Last.fm scrobble rules to one queued track and submit it"""
@@ -111,29 +111,29 @@ class Scrobbler:
         info_msg = f"{info['title']} by {info['artist']} from {album} ({duration}s)"
 
         if duration <= Constants.SCROBBLE_MIN_DURATION:
-            self.log(f"{info['player']}: NO scrobble (track duration too short) {info_msg}")
+            self.log.info(f"{info['player']}: NO scrobble (track duration too short) {info_msg}")
             return
 
         play_time = self._calculate_play_time(info)
         if not (play_time > duration * Constants.SCROBBLE_PERCENT_THRESHOLD
                 or play_time > Constants.SCROBBLE_TIME_THRESHOLD):
-            self.log(f"{info['player']}: NO scrobble (playtime {play_time}s) {info_msg}")
+            self.log.info(f"{info['player']}: NO scrobble (playtime {play_time}s) {info_msg}")
             return
 
         sk = self.settings.get_session_key(info['player'])
-        self.log(f"{info['player']}: Submitting scrobble -> {info_msg}")
+        self.log.info(f"{info['player']}: Submitting scrobble -> {info_msg}")
         resp = self.lastfm.track_scrobble(
             sk, info['title'], info['artist'], album,
             info.get('tracknum', ''), duration, int(info['playing'][0])
         )
 
         if resp is not None:
-            self.log(f"{info['player']}: Scrobble accepted -> {info_msg}")
+            self.log.info(f"{info['player']}: Scrobble accepted -> {info_msg}")
             self.db.add_to_history(info)
             if self.db.get_cache_size() > 0:
                 self.scrobble_q.put(self.db.pop_from_cache())
         else:
-            self.log(f"{info['player']}: FAILED scrobbling -> {info_msg}")
+            self.log.error(f"{info['player']}: FAILED scrobbling -> {info_msg}")
             self.db.add_to_cache(info)
 
     def _now_playing_loop(self):
@@ -147,7 +147,7 @@ class Scrobbler:
             try:
                 self._handle_now_playing(info)
             except Exception as e:
-                self.log(f'Scrobbler: error handling now playing: {type(e).__name__}: {e}')
+                self.log.error(f'Scrobbler: error handling now playing: {type(e).__name__}: {e}')
 
     def _handle_now_playing(self, info):
         """Submit one 'Now Playing' update if the track is currently running"""
@@ -169,13 +169,13 @@ class Scrobbler:
 
         info_msg = f"-> {artist} - {title} ({duration}s)"
         sk = self.settings.get_session_key(info['player'])
-        self.log(f"{info['player']}: Submitting now playing {info_msg}")
+        self.log.info(f"{info['player']}: Submitting now playing {info_msg}")
         resp = self.lastfm.track_update_now_playing(sk, title, artist, duration)
 
         if resp is not None:
-            self.log(f"{info['player']}: Now playing accepted {info_msg}")
+            self.log.info(f"{info['player']}: Now playing accepted {info_msg}")
         else:
-            self.log(f"{info['player']}: FAILED now playing {info_msg}")
+            self.log.error(f"{info['player']}: FAILED now playing {info_msg}")
 
     def _calculate_play_time(self, info):
         """Calculate total playback time for a track in seconds"""

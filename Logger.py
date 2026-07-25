@@ -1,115 +1,137 @@
-"""Logger.py - Logger for SkrobbleDs
+"""Logger.py - Logging for SkrobbleDs
 
 Copyright (c) Rockfather 2012, edooper 2026
 All Rights Reserved
 See the licence.txt file provided with this software
 for full terms and conditions of use
+
+A thin facade over the standard library's logging, plus an in-memory ring
+buffer that the web UI reads. Severity is carried by the record's level, so
+the UI picks out submission failures by level rather than by substring
+matching the message text against a hand-maintained list of prefixes.
 """
 import collections
-import threading
-import time
-import queue
+import logging
 import os
+import sys
+import threading
 
 import Constants
 
-# Sentinel enqueued by shutdown() *after* any pending messages, so the output
-# thread drains everything already queued before it stops. Mirrors the 'bye'
-# sentinel in Scrobbler.
-_SHUTDOWN = object()
+FORMAT = '[%(asctime)s] %(message)s'
+DATE_FORMAT = '%d/%m/%y %H:%M:%S'
+
+
+def _env_flag(name):
+    return os.environ.get(name, '').lower() in ('true', '1', 'yes', 'on')
+
+
+class RingBufferHandler(logging.Handler):
+    """Keeps the most recent formatted records in memory for the web UI"""
+
+    def __init__(self, capacity):
+        super().__init__()
+        self._records = collections.deque(maxlen=capacity)
+        self._buf_lock = threading.Lock()
+
+    def emit(self, record):
+        try:
+            line = self.format(record)
+        except Exception:  # never let logging break the caller
+            return
+        with self._buf_lock:
+            self._records.append((record.levelno, line))
+
+    def lines(self, count):
+        with self._buf_lock:
+            snapshot = [line for _, line in self._records]
+        return snapshot[-count:] if count else snapshot
+
+    def errors(self, count):
+        with self._buf_lock:
+            snapshot = [line for level, line in self._records
+                        if level >= logging.ERROR]
+        return snapshot[-count:] if count else snapshot
+
+    def __len__(self):
+        with self._buf_lock:
+            return len(self._records)
+
 
 class Logger:
-    """Thread-safe logging system for SkrobbleDs"""
+    """Application logger: level-based, with an in-memory tail for the web UI"""
 
-    def __init__(self):
-        self.msg_queue = queue.Queue()
-        self.log_file = None
+    def __init__(self, name='skrobbleds'):
+        self.debug_enabled = _env_flag('DEBUG')
 
-        # In-memory ring buffer of recent formatted log lines, surfaced by the
-        # web UI. Always available regardless of the optional LOG_FILE setting.
-        self.recent = collections.deque(maxlen=Constants.LOG_RING_SIZE)
-        self._recent_lock = threading.Lock()
+        self._logger = logging.getLogger(name)
+        self._logger.setLevel(logging.DEBUG if self.debug_enabled else logging.INFO)
+        # Ours alone - don't hand records to the root logger as well
+        self._logger.propagate = False
+        # A process may construct more than one Logger (notably in tests);
+        # start from a clean handler set rather than accumulating duplicates
+        for handler in list(self._logger.handlers):
+            self._logger.removeHandler(handler)
+            handler.close()
 
-        # Check debug logging level via environment variable
-        # DEBUG=true enables debug messages, DEBUG=false (default) hides them
-        self.debug_enabled = os.environ.get('DEBUG', '').lower() in ('true', '1', 'yes', 'on')
+        formatter = logging.Formatter(FORMAT, datefmt=DATE_FORMAT)
 
-        # Check if file logging is enabled via environment variable
-        log_file_enabled = os.environ.get('LOG_FILE', '').lower() in ('true', '1', 'yes', 'on')
-        if log_file_enabled:
+        # stdout, not the StreamHandler default of stderr - the previous
+        # implementation used print(), and container log collection depends on
+        # the stream not changing
+        stream_handler = logging.StreamHandler(sys.stdout)
+        stream_handler.setFormatter(formatter)
+        self._logger.addHandler(stream_handler)
+
+        self._ring = RingBufferHandler(Constants.LOG_RING_SIZE)
+        self._ring.setFormatter(formatter)
+        self._logger.addHandler(self._ring)
+
+        if _env_flag('LOG_FILE'):
             config_dir = os.environ.get('CONFIG_DIR', 'config')
             script_dir = os.path.dirname(os.path.abspath(__file__))
             log_path = os.path.join(script_dir, config_dir, 'skrobbleds.log')
-            ts = time.strftime('%d/%m/%y %H:%M:%S')
             try:
-                self.log_file = open(log_path, 'a', encoding='utf-8')
-                print(f'[{ts}] Logging to file: {log_path}')
-            except Exception as e:
-                print(f'[{ts}] Failed to open log file {log_path}: {e}')
+                file_handler = logging.FileHandler(log_path, encoding='utf-8')
+                file_handler.setFormatter(formatter)
+                self._logger.addHandler(file_handler)
+                self.info(f'Logging to file: {log_path}')
+            except OSError as e:
+                self.error(f'Failed to open log file {log_path}: {e}')
 
         if self.debug_enabled:
-            ts = time.strftime('%d/%m/%y %H:%M:%S')
-            print(f'[{ts}] Debug logging enabled')
+            self.debug('Debug logging enabled')
 
-        self.output_thread = threading.Thread(target=self.output_loop, daemon=True)
-        self.output_thread.start()
+    def info(self, msg):
+        """Log a normal operational message"""
+        self._logger.info(msg)
 
-    def shutdown(self):
-        """Cleanly shutdown the logger, writing anything still queued"""
-        self.log('ByeBye')
-        self.msg_queue.put(_SHUTDOWN)
-        self.output_thread.join()
-        if self.log_file:
-            try:
-                self.log_file.close()
-            except OSError:
-                pass
+    # The bulk of the codebase calls .log(); it is plain informational output
+    log = info
 
-    def log(self, msg):
-        """Queue a message for logging"""
-        if str(msg).startswith('[DEBUG]') and not self.debug_enabled:
-            return
-        self.msg_queue.put(msg)
+    def debug(self, msg):
+        """Log a diagnostic message - suppressed unless DEBUG is set"""
+        self._logger.debug(msg)
+
+    def error(self, msg):
+        """Log a failure. These surface in the web UI's failure banner."""
+        self._logger.error(msg)
 
     def get_recent_lines(self, count=Constants.LOG_DISPLAY_LINES):
         """Return a snapshot of the last `count` formatted log lines"""
-        with self._recent_lock:
-            lines = list(self.recent)
-        return lines[-count:]
+        return self._ring.lines(count)
 
     def get_recent_errors(self, count=Constants.LOG_ERROR_DISPLAY):
-        """Return recent buffered lines that mark a submission failure.
+        """Return the most recent lines logged at ERROR or above"""
+        return self._ring.errors(count)
 
-        Scans the whole buffer for Last.fm error markers and returns the most
-        recent matches (oldest first), capped to `count`.
-        """
-        with self._recent_lock:
-            lines = list(self.recent)
-        errors = [
-            line for line in lines
-            if any(marker in line for marker in Constants.LOG_ERROR_MARKERS)
-        ]
-        return errors[-count:]
-
-    def output_loop(self):
-        """Background thread for processing the log message queue.
-           Terminates on the _SHUTDOWN sentinel, which shutdown() enqueues
-           last so that messages already queued are still written."""
-        while True:
-            msg = self.msg_queue.get()
-            if msg is _SHUTDOWN:
-                break
-            # Debug messages are already filtered by log() before queueing
-            msg = str(msg)
-
-            ts = time.strftime('%d/%m/%y %H:%M:%S')
-            formatted_msg = f'[{ts}] {msg}'
-            print(formatted_msg)
-            with self._recent_lock:
-                self.recent.append(formatted_msg)
-            if self.log_file:
-                try:
-                    self.log_file.write(formatted_msg + '\n')
-                    self.log_file.flush()  # Ensure immediate write
-                except Exception as e:
-                    print(f'[{ts}] Failed to write to log file: {e}')
+    def shutdown(self):
+        """Flush and release the log handlers"""
+        self.info('ByeBye')
+        for handler in list(self._logger.handlers):
+            try:
+                handler.flush()
+            except (OSError, ValueError):
+                pass
+            self._logger.removeHandler(handler)
+            handler.close()
