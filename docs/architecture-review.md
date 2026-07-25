@@ -2,6 +2,15 @@
 
 **Version reviewed:** 0.95.7 (`c3d351e`) · **Date:** 2026-07-24
 
+## Status
+
+Findings A1–A6, B1–B4 and C1–C8 were implemented on `refactor/architecture-review`,
+one commit per finding. **D remains open** by choice — it changes behaviour on
+multi-homed hosts (see that section).
+
+The findings below are left as originally written, describing the code as it stood at
+`c3d351e`; the commit for each explains what changed.
+
 ## Scope
 
 A review of the whole codebase (~5,100 lines: every top-level module and the entire `Upnp/`
