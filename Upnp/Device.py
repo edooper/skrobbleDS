@@ -51,20 +51,16 @@ class DescriptionRetriever(Thread):
         self.iConn = None
         return descXml
 
-    def RetrieveServiceDescs(self, aDevice):
-        for serv in aDevice.ServiceList():
-            xmlDesc = self.GetXmlDescription(serv.ScpdUrl())
-            serv.ParseXmlDesc(xmlDesc)
-        for dev in aDevice.DeviceList():
-            self.RetrieveServiceDescs(dev)
-
     def run(self):
         try:
-            # Retrieve the device and service descriptions and notify the discovery object
-            # when done
+            # Retrieve the device description and notify the discovery object
+            # when done. The per-service SCPD files are deliberately NOT
+            # fetched: nothing reads the action/state-variable tables they
+            # describe, and fetching them added an HTTP round-trip per service
+            # inside this single try/except - so one slow or failed SCPD made
+            # the whole device undiscoverable.
             devDescXml = self.GetXmlDescription(self.iLocation)
             rootDev = RootDevice(devDescXml, self.iLocation)
-            self.RetrieveServiceDescs(rootDev.Device())
             self.iDevice = rootDev.Device().FindDevice(self.iUuid)
             self.iDiscovery.DeviceDescriptionDone( self.iUuid, self.iDevice )
 
