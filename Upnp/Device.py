@@ -1,6 +1,4 @@
 import re
-import http.client as httplib
-import socket
 import xml.etree.ElementTree as etree
 from . import Service
 from threading import Thread
@@ -154,12 +152,6 @@ class Device:
                 newDev = Device( device, aDevNs, aRootDevice )
                 self.iDeviceList.append( newDev )
         
-        # presentationUrl
-        try:
-            self.iPresentationUrl = aDevElem.find( '{%s}presentationURL' % (aDevNs) ).text or ''
-        except (AttributeError, TypeError):
-            self.iPresentationUrl = ''
-        
     def __str__(self):
         devStr  = 'DEVICE:\r\n'
         devStr += 'UUID        : ' + self.Uuid() + '\r\n'
@@ -184,9 +176,6 @@ class Device:
 
     def FriendlyName(self):
         return self.iFriendlyName
-
-    def PresentationUrl(self):
-        return self.iPresentationUrl
 
     def SetLocation(self, aLocation):
         self.iRootDevice.SetLocation(aLocation)

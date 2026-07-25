@@ -4,9 +4,7 @@ from threading import Lock
 from threading import Event
 import socket
 import select
-import re
 import os
-import struct
 from . import HttpPacket
 from . import NetUtil
 
@@ -37,7 +35,6 @@ class SsdpServer(Thread):
         self.iStarted   = Event()
         self.iStopped   = Event()
         self.iStopped.set()
-        self.iDumpPackets = False
         if not self.iIfAddr:
             self.iIfAddr = NetUtil.get_local_ip()
 
@@ -126,10 +123,6 @@ class SsdpServer(Thread):
                     for obs in self.iObservers:
                         obs.SsdpReceived(recvpkt)
 
-                    if self.iDumpPackets:
-                        print(recvpkt)
-                        print()
-
                 except Exception as e:
                     # ignore invalid requests
                     pass
@@ -142,6 +135,3 @@ class SsdpServer(Thread):
         sock.close()
         stopSock.close()
         self.iStopped.set()
-
-    def DumpPackets(self, aDump):
-        self.iDumpPackets = aDump

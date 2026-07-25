@@ -5,7 +5,6 @@ All Rights Reserved
 See the licence.txt file provided with this software
 for full terms and conditions of use
 """
-import copy
 import json
 import os
 import tempfile

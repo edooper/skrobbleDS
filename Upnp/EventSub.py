@@ -23,7 +23,6 @@ class EventSub(EventServer.EventObserver):
         self.iRequestTimeout = 1800
         self.iActualTimeout = 0
         self.iTimer = None
-        self.iTimedOut = False
         # Guards iSubId/iService/iTimer, which are touched from the caller's
         # thread (Subscribe/Unsubscribe) and from renewal Timer threads
         self.iLock = threading.RLock()
@@ -36,15 +35,6 @@ class EventSub(EventServer.EventObserver):
         """Return the subscription ID (SID) of the observer. The subject in the observer pattern will use
             this to determine which observer gets notified."""
         return self.iSubId
-
-    def SetRequestTimeout(self, aTimeout):
-        self.iRequestTimeout = aTimeout
-
-    def RequestTimeout(self):
-        return self.iRequestTimeout
-
-    def ActualTimeout(self):
-        return self.iActualTimeout
 
     def Notify(self, aSeq, aXmlBody):
         """Called when an event happens."""
@@ -249,16 +239,3 @@ class EventSub(EventServer.EventObserver):
         finally:
             conn.close()
 
-    def Timeout(self):
-        self.iTimedOut = True
-
-    def Clear(self):
-        """If the UPnP device has gone offline while the control point is subscribed, calling
-            this function will reset the EventSub object for reuse."""
-        with self.iLock:
-            self.iSubId   = None
-            self.iService = None
-            self.iEventServer.RemoveObserver(self)
-            if self.iTimer != None:
-                self.iTimer.cancel()
-            self.iTimer = None

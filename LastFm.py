@@ -70,12 +70,6 @@ class LastFm:
         _ensure_config()
         self.log = logger.log if logger else print
 
-    def auth_get_token(self):
-        """Get an authentication token from Last.fm"""
-        params = {'method': 'auth.getToken', 'api_key': API_KEY}
-        data = self._get_data(params, sign=True)
-        return data.findtext('token') if data is not None else None
-    
     def auth_get_session(self, token):
         """Get a session key using an authentication token"""
         params = {

@@ -4,9 +4,8 @@ import socket
 class HttpConnection( httplib.HTTPConnection ):
     "Over-ride for http.client.HTTPConnection to add socket timeout"
 
-    def __init__(self, host, port=None, strict=None, timeout=None):
+    def __init__(self, host, port=None, timeout=None):
         "init base class, setup class timeout value"
-        # Note: strict parameter was removed in Python 3, ignored for compatibility
         httplib.HTTPConnection.__init__( self, host, port )
         self.timeout=timeout
 

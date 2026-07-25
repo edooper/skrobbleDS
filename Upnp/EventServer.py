@@ -6,7 +6,6 @@ from threading import BoundedSemaphore
 from threading import Event
 import socket
 import select
-import re
 import traceback
 
 #
@@ -47,9 +46,6 @@ class EventSession:
             self.iData = b''
 
     def Append(self, aData):
-        # Encode to bytes if needed (Python 3 compatibility)
-        if isinstance(aData, str):
-            aData = aData.encode('utf-8')
         self.iData += aData
 
 
@@ -225,8 +221,8 @@ class EventServer(Thread):
                         try:
                             data = sock.recv( 10000 )
                         except OSError:
-                            # socket closed by peer ???
-                            data = ''
+                            # socket closed by peer - treat as end of stream
+                            data = b''
 
                         if len(data) == 0:
                             # The socket has been closed

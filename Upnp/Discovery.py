@@ -8,8 +8,6 @@ import select
 import time
 from threading import Lock
 from threading import Thread
-from threading import Semaphore
-from threading import Event
 from threading import Timer
 
 
@@ -25,17 +23,6 @@ class DiscoveryObserver:
             explicitly calling RemoveObserver on the Discovery instance."""
 
 
-class Msearch(Thread):
-    """A class to spawn a thread for the M_SEARCH discovery."""
-
-    def __init__(self, aDiscovery):
-        Thread.__init__(self, daemon=True)
-        self.iDiscovery = aDiscovery
-
-    def run(self):
-        self.iDiscovery.DoMsearch()
-
-
 class Discovery(Ssdp.SsdpObserver):
     """A control point class. This class handles the discovery phase of UPnP and manages a list of
         currently available devices. It only implements the UPnP DISCOVERY PHASE. Other UPnP phases
@@ -49,20 +36,12 @@ class Discovery(Ssdp.SsdpObserver):
         self.iDiscoverObs = []
         self.timerDict    = {}
         self.iLock        = Lock()
-        self.iSearchDone  = Event()
         self.iSearchTime  = 2
         self.iSsdpServer = aSsdpServer
         if aSsdpServer == None:
             self.iOwnsSsdpServer = True
         else:
             self.iOwnsSsdpServer = False
-
-    def LockDeviceList(self):
-        self.iLock.acquire()
-        return self.iDeviceList
-
-    def UnlockDeviceList(self):
-        self.iLock.release()
 
     def Start(self, aSearchType, aSearchTime=2):
         """Start the discovery"""
@@ -108,16 +87,11 @@ class Discovery(Ssdp.SsdpObserver):
         self.iLock.release()
 
     def Discover(self, aSearchTime=2):
-        """Start the UPnP M-SEARCH discovery. Spawn the thread to handle it and return.
-            Need to create a new Msearch object since, for thread objects, the start()
-            operation can only be called once - even if the thread has terminated."""
+        """Start the UPnP M-SEARCH discovery. Spawn the thread to handle it and
+            return. A fresh Thread each call, since start() may only be called
+            once per thread object - even after it has terminated."""
         self.iSearchTime = aSearchTime
-        msearch = Msearch(self)
-        msearch.start()
-
-    def WaitForDiscover(self):
-        """Wait for the end of the M_SEARCH discovery."""
-        self.iSearchDone.wait()
+        Thread(target=self.DoMsearch, daemon=True).start()
 
     def DeviceDescriptionDone( self, aUuid, aDevice ):
         """Callback from DescriptionRetriever on success"""
@@ -227,7 +201,6 @@ class Discovery(Ssdp.SsdpObserver):
                     newDescRetr.Start()
             self.iLock.release()
         sock.close()
-        self.iSearchDone.set()
 
     def SsdpReceived(self, aSsdpPkt):
         """Implementation of the SSDPObserver interface. This function is called whenever the SSDP server
