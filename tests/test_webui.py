@@ -46,3 +46,70 @@ def test_logs_empty_when_no_logger():
     resp = _client(None).get('/logs')
     assert resp.status_code == 200
     assert resp.get_json() == {'lines': [], 'errors': []}
+
+
+class _FakeSettings:
+    def __init__(self):
+        self.accounts = {'alice': 'key-a'}
+        self.players = {'Living Room': 'alice'}
+        self.host = '192.168.1.5'
+
+    def get_accounts(self):
+        return list(self.accounts)
+
+    def get_players(self):
+        return list(self.players)
+
+    def get_user(self, name):
+        return self.players.get(name)
+
+    def get_host(self):
+        return self.host
+
+
+class _FakeDb:
+    def get_recent_history(self, limit=10):
+        return [{'player': 'Living Room', 'track': 'T', 'artist': 'A',
+                 'album': 'Al', 'duration': '200', 'timestamp': 1700000000}]
+
+
+class _FakePlayer:
+    def __init__(self, name):
+        self.name = name
+
+
+def _full_app():
+    """An app wired the way SkrobbleDs wires it, for exercising the routes."""
+    return WebUi.create_app(
+        settings=_FakeSettings(),
+        players=[_FakePlayer('Living Room'), _FakePlayer('Kitchen')],
+        shutdown_callback=None,
+        version='9.9.9',
+        db=_FakeDb(),
+        logger=_FakeLogger(lines=['a line'], errors=[]),
+    )
+
+
+def test_health_reports_counts_from_settings():
+    resp = _full_app().test_client().get('/health')
+    assert resp.status_code == 200
+    assert resp.get_json() == {
+        'status': 'healthy', 'version': '9.9.9', 'accounts': 1, 'players': 1,
+    }
+
+
+def test_index_renders_with_all_dependencies():
+    """Exercises every closure dependency the page reads: settings, players,
+    db, logger and version."""
+    resp = _full_app().test_client().get('/')
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'Living Room' in body      # configured player
+    assert 'Kitchen' in body          # discovered but unconfigured
+    assert '9.9.9' in body            # version
+    assert '192.168.1.5' in body      # host
+
+
+def test_post_without_csrf_token_is_rejected():
+    resp = _full_app().test_client().post('/removePlayer', data={'player': 'Living Room'})
+    assert resp.status_code == 403
