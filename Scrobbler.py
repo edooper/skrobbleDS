@@ -14,12 +14,13 @@ import Constants
 class Scrobbler:
     """Handles scrobbling logic and now-playing updates for Last.fm"""
     
-    def __init__(self, settings, logger, db):
-        """Initialise class data, start scrobbling and now-playing monitors"""
+    def __init__(self, settings, logger, db, lastfm=None):
+        """Initialise class data, start scrobbling and now-playing monitors.
+           `lastfm` is injectable so tests need no on-disk credentials."""
         self.settings = settings
         self.log = logger.log
         self.shutdown_flag = False
-        self.lastfm = LastFm.LastFm(logger)
+        self.lastfm = lastfm if lastfm is not None else LastFm.LastFm(logger)
         self.scrobble_q = queue.Queue()
         self.now_playing_q = queue.Queue()
         self.db = db

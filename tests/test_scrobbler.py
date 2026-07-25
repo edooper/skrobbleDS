@@ -98,9 +98,8 @@ def _track(title):
 def test_shutdown_drains_pending_scrobbles():
     """All scrobbles queued before shutdown must be submitted, not dropped."""
     db = FakeDb()
-    scrobbler = Scrobbler.Scrobbler(FakeSettings(), FakeLogger(), db)
     fake = FakeLastFm()
-    scrobbler.lastfm = fake
+    scrobbler = Scrobbler.Scrobbler(FakeSettings(), FakeLogger(), db, lastfm=fake)
     try:
         for i in range(3):
             scrobbler.scrobble_q.put(_track(f'Track {i}'))
