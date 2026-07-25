@@ -129,19 +129,8 @@ class Discovery(Ssdp.SsdpObserver):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
         sock.setsockopt( socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 4 )
 
-        # Try to bind to the port - if it fails, increment the port and try again
-        port = 22671
-        max_port = port + 1000
-        portAssigned = 0
         ifAddr = self.iIfAddr if self.iIfAddr else NetUtil.get_local_ip()
-        while not portAssigned:
-            try:
-                sock.bind( (ifAddr, port) )
-                portAssigned = 1
-            except socket.error as e:
-                port += 1
-                if port > max_port:
-                    raise RuntimeError("Unable to bind to any port in range 22671-%d" % max_port)
+        NetUtil.bind_in_range(sock, ifAddr, 22671, what='M-SEARCH socket')
 
         # send the request
         sock.sendto( str(searchPkt).encode('utf-8'), ('239.255.255.250', 1900))

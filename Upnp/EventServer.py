@@ -1,5 +1,6 @@
 
 from . import HttpPacket
+from . import NetUtil
 from threading import Thread
 from threading import Lock
 from threading import BoundedSemaphore
@@ -154,35 +155,14 @@ class EventServer(Thread):
         # create a socket to listen on the mutlicast channel
         listenSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
 
-        # Try to bind to the port - if it fails, increment the port and try again
-        port = 5600
-        max_port = port + 1000
-        portAssigned = 0
-        while not portAssigned:
-            try:
-                listenSock.bind( (self.iAddr, port) )
-                portAssigned = 1
-            except socket.error as e:
-                port += 1
-                if port > max_port:
-                    raise RuntimeError("Unable to bind event server to any port in range 5600-%d" % max_port)
-        self.iEventPort = port
+        self.iEventPort = NetUtil.bind_in_range(listenSock, self.iAddr, 5600,
+                                                what='event server')
         listenSock.listen(5)
 
         # stop socket - for exiting the main server loop below
         stopSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
-        port = 5678
-        max_port = port + 1000
-        portAssigned = 0
-        while not portAssigned:
-            try:
-                stopSock.bind( ('127.0.0.1', port) )
-                portAssigned = 1
-            except socket.error as e:
-                port += 1
-                if port > max_port:
-                    raise RuntimeError("Unable to bind stop socket to any port in range 5678-%d" % max_port)
-        self.iStopPort = port
+        self.iStopPort = NetUtil.bind_in_range(stopSock, '127.0.0.1', 5678,
+                                               what='stop socket')
         
         # A list of connected sockets
         connSocks = []

@@ -94,16 +94,8 @@ class SsdpServer(Thread):
         # create the stop socket - this listens on the loopback interface for a message to quit the server
         stopSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
 
-        # Try to bind to the port - if it fails, increment the port and try again
-        port = 6789
-        portAssigned = 0
-        while not portAssigned:
-            try:
-                stopSock.bind( ('127.0.0.1', port) )
-                portAssigned = 1
-            except socket.error as e:
-                port += 1
-        self.iStopPort = port
+        self.iStopPort = NetUtil.bind_in_range(stopSock, '127.0.0.1', 6789,
+                                               what='SSDP stop socket')
 
         self.iStopped.clear()
         self.iStarted.set()

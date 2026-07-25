@@ -31,3 +31,22 @@ def get_local_ip(preferred=None, peer_ip=None):
         return socket.gethostbyname(socket.gethostname())
     except socket.gaierror:
         return '127.0.0.1'
+
+
+def bind_in_range(sock, addr, start_port, count=1000, what='socket'):
+    """Bind `sock` to the first free port at or after `start_port`.
+
+    Returns the port actually bound. Raises RuntimeError once `count` ports
+    have been tried, so a host that can bind nothing fails loudly instead of
+    spinning forever.
+    """
+    for port in range(start_port, start_port + count):
+        try:
+            sock.bind((addr, port))
+            return port
+        except OSError:
+            continue
+    raise RuntimeError(
+        'Unable to bind %s to any port in range %d-%d'
+        % (what, start_port, start_port + count - 1)
+    )
